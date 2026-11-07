@@ -212,3 +212,19 @@ to 456 KB, against git's 537 KB, and packs in 1.55 s instead of 2.0 s.
 Window 250 now buys 5% for forty times the time. Real git still clones,
 fetches and fscks the result. README tables updated; the "packs are 4x
 larger" caveat is gone.
+
+## Where things stand
+
+Done, and checked against git 2.35: object model, packfile reader and
+writer with path-aware ordering and v2 index, pkt-line and smart HTTP v1
+(clone, fetch, push), SQLite store with compare-and-swap refs, the read and
+write API (grep, file, tree, files, refs, fork, commit, ref), the perry CLI,
+the TypeScript fleet coordinator with a replay merge queue, benchmarks, the
+README, and the launch video with generated narration.
+
+Cut, as the plan allowed: the S3 backend. Background repacking does not
+apply to the SQLite backend, which stores objects as rows rather than packs.
+
+Every commit is authored as Sai Ravig in conventional-commit form. `go build`,
+`go vet`, `go test ./...`, and `tsc --noEmit` in coordinator/ and video/ all
+pass from a clean tree.

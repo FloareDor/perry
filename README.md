@@ -1,7 +1,8 @@
 # Perry
 
 [![Go Reference](https://img.shields.io/badge/go-reference-00ADD8?logo=go&logoColor=white)](https://pkg.go.dev/github.com/perry-dev/perry)
-[![Go 1.21+](https://img.shields.io/badge/go-1.21%2B-00ADD8)](https://go.dev)
+[![Go 1.26+](https://img.shields.io/badge/go-1.26%2B-00ADD8)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-yellow)](#project-status)
 
 Perry is a git server for coding agents. It serves clone, push and fetch over the git
@@ -156,7 +157,7 @@ name, err := pack.WriteAll(&buf, objects) // git index-pack accepts the result
 
 ## Benchmarks
 
-AMD Ryzen 7 5800H, Windows 11, Go 1.21. The corpus is a shallow bare clone of
+AMD Ryzen 7 5800H, Windows 11, Go 1.26. The corpus is a shallow bare clone of
 [spf13/cobra](https://github.com/spf13/cobra): 1078 objects, 10.19 MB uncompressed, 69%
 of pack entries stored as deltas. Reproduce with:
 
@@ -329,3 +330,7 @@ exists because there is no open implementation of the same idea.
   you want a client.
 - [Gitaly](https://gitlab.com/gitlab-org/gitaly) is GitLab's git storage server, and the
   closest thing to prior art on the server side.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
