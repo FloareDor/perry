@@ -39,10 +39,10 @@ type IndexEntry struct {
 // binary search rather than a scan. The fanout table narrows that search to
 // the objects sharing a first byte before it begins.
 type Index struct {
-	Entries  []IndexEntry
-	PackID   object.ID
-	fanout   [256]uint32
-	byID     map[object.ID]int
+	Entries []IndexEntry
+	PackID  object.ID
+	fanout  [256]uint32
+	byID    map[object.ID]int
 }
 
 // Count returns the number of indexed objects.

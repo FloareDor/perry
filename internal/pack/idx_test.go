@@ -88,7 +88,7 @@ func TestReadIndexRejectsCorruption(t *testing.T) {
 	good := idxBuf.Bytes()
 
 	for _, tc := range []struct {
-		name  string
+		name   string
 		break_ func([]byte) []byte
 	}{
 		{"bad magic", func(b []byte) []byte { c := append([]byte{}, b...); c[0] = 0; return c }},
