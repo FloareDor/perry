@@ -1,72 +1,174 @@
-import { useCurrentFrame } from "remotion";
-import { Frame, Row } from "../components/Layout.tsx";
-import { Terminal, visibleLines } from "../components/Terminal.tsx";
-import { Headline } from "../components/Text.tsx";
+import React from "react";
+import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, FONT_MONO } from "../theme.ts";
+import { BAR, BEAT, pop, ramp } from "../beat.ts";
+import { Backdrop, Chip, SceneOut, Tag } from "../components/Primitives.tsx";
 
-const AGENTS = 20;
+const N = 20;
+const TRUNK_Y = 560;
+const X0 = 180;
+const X1 = 1780;
+const CONFLICT = 13; // one agent lands on a file another agent already touched
 
-// Each agent: fork, grep, read, commit. Stagger so the grid fills over ~3 s.
-const STAGES = ["fork", "grep", "read", "commit", "pushed"];
+const START = BEAT;
+const STAGGER = 5;
+const DRAW = 54;
 
-const LOG = [
-  "fleet: 20 tasks, 20 at a time",
-  "  t-01  fork agent/t-01 -> 3b73ec5",
-  "  t-07  grep 'func Resolve'  2 matches",
-  "  t-13  commit 9f1c0aa  appended a note",
-  "  t-02  commit 6a0d41e  renamed helper",
-  "  t-19  commit c41b9e0  fixed typo",
-  "  merge t-01 -> main  fast-forward",
-  "  merge t-07 -> main  replayed",
-  "20/20 succeeded, 20 merged, 0 clones",
-];
+interface Branch {
+  i: number;
+  depart: number;
+  rejoin: number;
+  y: number;
+  at: number;
+  conflict: boolean;
+}
 
-export const Fleet = () => {
+const BRANCHES: Branch[] = Array.from({ length: N }, (_, i) => {
+  const side = i % 2 === 0 ? -1 : 1;
+  const rank = Math.floor(i / 2);
+  return {
+    i,
+    depart: 330 + i * 8,
+    rejoin: 1230 + i * 14,
+    y: TRUNK_Y + side * (46 + rank * 42),
+    at: START + i * STAGGER,
+    conflict: i === CONFLICT,
+  };
+});
+
+function pathFor(b: Branch): string {
+  const a = b.depart;
+  const z = b.rejoin;
+  return [
+    `M ${a} ${TRUNK_Y}`,
+    `C ${a + 70} ${TRUNK_Y} ${a + 70} ${b.y} ${a + 140} ${b.y}`,
+    `L ${z - 140} ${b.y}`,
+    `C ${z - 70} ${b.y} ${z - 70} ${TRUNK_Y} ${z} ${TRUNK_Y}`,
+  ].join(" ");
+}
+
+/**
+ * Bars 15-19. Twenty branches peel off one trunk and come back. Each
+ * rejoin flashes the ref node, which is a compare-and-swap landing. One
+ * of them touches a file another agent already changed and goes amber
+ * instead of quietly winning.
+ */
+export const Fleet: React.FC<{ dur: number }> = ({ dur }) => {
   const frame = useCurrentFrame();
-  const log = visibleLines(LOG, frame, 20, 18);
+  const trunk = ramp(frame, 0, 22);
+
+  const landedCount = BRANCHES.filter((b) => frame >= b.at + DRAW).length;
 
   return (
-    <Frame>
-      <Headline size={72}>Twenty agents, twenty branches, one repository.</Headline>
-      <Row gap={48} style={{ marginTop: 48, alignItems: "flex-start" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, width: 860 }}>
-          {Array.from({ length: AGENTS }, (_, i) => {
-            const start = 15 + (i % 7) * 6 + Math.floor(i / 7) * 10;
-            const stage = Math.min(STAGES.length - 1, Math.max(-1, Math.floor((frame - start) / 22)));
-            const done = stage === STAGES.length - 1;
+    <SceneOut durationInFrames={dur}>
+      <AbsoluteFill style={{ background: C.bg }}>
+        <Backdrop opacity={0.35} />
+
+        <svg width={1920} height={1080} style={{ position: "absolute", inset: 0 }}>
+          <line
+            x1={X0}
+            y1={TRUNK_Y}
+            x2={X0 + (X1 - X0) * trunk}
+            y2={TRUNK_Y}
+            stroke={C.line}
+            strokeWidth={4}
+          />
+
+          {BRANCHES.map((b) => {
+            if (frame < b.at) return null;
+            const p = ramp(frame, b.at, DRAW);
+            const colour = b.conflict ? C.amber : C.accentDim;
+            const flat = p > 0.22 && p < 0.84;
+            const dotX = b.depart + 140 + (b.rejoin - 280 - b.depart) * ((p - 0.22) / 0.62);
             return (
-              <div
-                key={i}
-                style={{
-                  height: 88,
-                  borderRadius: 8,
-                  border: `1px solid ${done ? C.accent : C.line}`,
-                  background: C.panel,
-                  opacity: stage < 0 ? 0.25 : 1,
-                  padding: "0 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  fontFamily: FONT_MONO,
-                  fontSize: 20,
-                  color: done ? C.accent : C.dim,
-                }}
-              >
-                <span style={{ color: C.text }}>t-{String(i + 1).padStart(2, "0")}</span>
-                <span>{stage < 0 ? "queued" : STAGES[stage]}</span>
-              </div>
+              <g key={b.i}>
+                <path
+                  d={pathFor(b)}
+                  fill="none"
+                  stroke={colour}
+                  strokeWidth={2.5}
+                  pathLength={1}
+                  strokeDasharray={1}
+                  strokeDashoffset={1 - p}
+                  opacity={0.85}
+                />
+                {flat ? (
+                  <circle cx={dotX} cy={b.y} r={7} fill={b.conflict ? C.amber : C.accent} />
+                ) : null}
+              </g>
             );
           })}
+
+          {/* A ref node flashes on the trunk every time a push lands. */}
+          {BRANCHES.map((b) => {
+            const land = b.at + DRAW;
+            if (frame < land) return null;
+            const f = ramp(frame, land, 12);
+            const colour = b.conflict ? C.amber : C.accent;
+            return (
+              <g key={`n${b.i}`}>
+                <circle
+                  cx={b.rejoin}
+                  cy={TRUNK_Y}
+                  r={6 + (1 - f) * 22}
+                  fill="none"
+                  stroke={colour}
+                  strokeWidth={2}
+                  opacity={(1 - f) * 0.8}
+                />
+                <circle cx={b.rejoin} cy={TRUNK_Y} r={6} fill={colour} />
+              </g>
+            );
+          })}
+        </svg>
+
+        <Tag style={{ position: "absolute", left: 130, top: 120 }}>
+          twenty agents, one repository
+        </Tag>
+
+        <div
+          style={{
+            position: "absolute",
+            right: 130,
+            top: 112,
+            fontFamily: FONT_MONO,
+            fontSize: 44,
+            color: C.dim,
+            textAlign: "right",
+          }}
+        >
+          pushed{" "}
+          <span style={{ color: C.accent, fontWeight: 700 }}>
+            {String(landedCount).padStart(2, "0")}
+          </span>
+          <span style={{ color: C.faint }}> / 20</span>
         </div>
-        <Terminal title="coordinator" width={760} height={470} style={{ fontSize: 23 }}>
-          {log.map((l, i) => (
-            <span key={i} style={{ color: i === LOG.length - 1 ? C.accent : i === 0 ? C.text : C.dim }}>
-              {l}
-              {"\n"}
-            </span>
-          ))}
-        </Terminal>
-      </Row>
-    </Frame>
+
+        <div
+          style={{
+            position: "absolute",
+            left: 130,
+            bottom: 128,
+            display: "flex",
+            gap: 20,
+            opacity: ramp(frame, BAR * 2, 14),
+          }}
+        >
+          <Chip>compare-and-swap on every ref</Chip>
+          <Chip>709 ms for all twenty</Chip>
+        </div>
+
+        <div
+          style={{
+            position: "absolute",
+            right: 130,
+            bottom: 128,
+            opacity: pop(frame, BRANCHES[CONFLICT].at + DRAW, 160),
+          }}
+        >
+          <Chip color={C.amber}>merge queue: two agents, one file</Chip>
+        </div>
+      </AbsoluteFill>
+    </SceneOut>
   );
 };
