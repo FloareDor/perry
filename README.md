@@ -2,31 +2,36 @@
 
 [![Go Reference](https://img.shields.io/badge/go-reference-00ADD8?logo=go&logoColor=white)](https://pkg.go.dev/github.com/perry-dev/perry)
 [![Go 1.21+](https://img.shields.io/badge/go-1.21%2B-00ADD8)](https://go.dev)
-[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)](#project-status)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-yellow)](#project-status)
 
 Perry is a git server for coding agents. It serves clone, push and fetch over the git
-wire protocol, and it serves a read API that lets an agent grep a repository or read one
-file at one ref without cloning anything.
+wire protocol, and it serves an HTTP API that lets an agent grep a repository, read one
+file at one ref, fork a branch and commit to it without cloning anything.
 
 The protocol is implemented in Go rather than shelling out to the `git` binary. Objects
-go to SQLite on a laptop or S3 in production.
+and refs live in one SQLite file per repository. A TypeScript coordinator runs a fleet of
+agents against it.
 
 ## Project status
 
-Pre-alpha. The object and packfile layers are complete and cross-checked against git
-2.35. The server is not written yet.
+Alpha. Every layer is cross-checked against git 2.35: packs Perry writes pass
+`git index-pack`, a repository pushed in and cloned back out is byte-identical and
+`git fsck` clean, and twenty stock git clients pushing at once all land.
 
 | Package | Scope | Status |
 |---|---|---|
 | `internal/object` | Object model, SHA-1 addressing, loose encoding | Complete |
-| `internal/pack` | Packfile reader, delta codec, pack writer | Complete |
-| `internal/pack` | v2 pack index | In progress |
-| `internal/protocol` | pkt-line, `upload-pack`, `receive-pack` | Not started |
-| `internal/store` | SQLite and S3 backends | Not started |
-| `internal/refs` | Compare-and-swap ref updates | Not started |
-| `internal/api` | grep, file-at-ref, fork | Not started |
+| `internal/pack` | Packfile reader, delta codec, pack writer, v2 index | Complete |
+| `internal/protocol` | pkt-line, `upload-pack`, `receive-pack` | Complete |
+| `internal/server` | Smart HTTP: clone, fetch, push | Complete |
+| `internal/store` | SQLite backend, compare-and-swap refs | Complete |
+| `internal/store` | S3 backend | Not started |
+| `internal/api` | grep, file, tree, fork, commit, ref | Complete |
+| `coordinator/` | TypeScript agent fleet runner | Complete |
 
-The library is usable today for reading and writing packfiles. Nothing else is.
+Not yet done: an S3 backend, background repacking, and path-aware object ordering in
+the packer (see [Benchmarks](#benchmarks)). Run it on a laptop or a single VM; do not
+put production data behind it yet.
 
 ## Why use Perry?
 
@@ -46,7 +51,7 @@ stock client, so everything downstream of the repository keeps working.
 
 ## Why not use Perry?
 
-**It does not work yet.** See [Project status](#project-status).
+**It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
 **It is a storage and protocol layer, and intends to stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
@@ -61,7 +66,16 @@ many short-lived branches written by machines.
 ## Installation
 
 ```bash
-go get github.com/perry-dev/perry
+go install github.com/perry-dev/perry/cmd/perry@latest
+perry serve -data ./data
+```
+
+The server listens on `:8080`, keeps one SQLite file per repository under `-data`, and
+needs no other process. Pushing to a name that does not exist creates it:
+
+```bash
+git remote add perry http://localhost:8080/app.git
+git push perry main
 ```
 
 Or build from source:
@@ -70,49 +84,78 @@ Or build from source:
 git clone https://github.com/perry-dev/perry
 cd perry
 go test ./...
+go build -o perry ./cmd/perry
 ```
 
 ## Examples
 
-Read every object out of a packfile, delta chains resolved:
+Search a repository without cloning it:
+
+```bash
+curl 'http://localhost:8080/v1/repos/app/grep?q=func+Resolve&ref=main&limit=20'
+```
+
+```json
+{"matches":[{"path":"internal/api/api.go","line":41,"text":"func Resolve(ctx context.Context, ..."}],
+ "truncated":false,"filesScanned":400,"filesMatched":2}
+```
+
+Read one file at one revision, list files by glob, or list refs:
+
+```bash
+curl 'http://localhost:8080/v1/repos/app/file?ref=main&path=go.mod'
+curl 'http://localhost:8080/v1/repos/app/files?ref=main&glob=internal/**/*.go'
+curl 'http://localhost:8080/v1/repos/app/refs?prefix=refs/heads/agent/'
+```
+
+Fork a branch for an agent, then commit to it with no working tree. `expect` is the
+commit the branch must still point at, which turns the write into a compare-and-swap:
+
+```bash
+curl -X POST localhost:8080/v1/repos/app/fork -d '{"from":"main","branch":"agent/t-07"}'
+
+curl -X POST localhost:8080/v1/repos/app/commit -d '{
+  "branch":  "agent/t-07",
+  "message": "t-07: add a note",
+  "expect":  "3b73ec5c...",
+  "changes": [{"path":"README.md","content":"<base64>"}]
+}'
+```
+
+A losing `expect` returns 409 and the agent retries on the fresh tip. Moving a ref to
+something that is not a fast-forward is refused unless `force` is set.
+
+Run a fleet of agents from TypeScript. Each one forks, greps, reads only what matched,
+and commits; a serial queue then replays each branch onto `main`:
+
+```bash
+cd coordinator && npm install
+node --experimental-strip-types src/index.ts --repo app --tasks tasks.json --agents 20
+```
+
+```
+fleet: 20 tasks, 20 at a time, scripted agent
+  t-01   38ms  9f1c0aa  appended a note to internal/api/api.go
+  ...
+20/20 succeeded, 20 merged, in 212ms
+140 API requests, 3.1 KB read, 0 clones
+```
+
+`--mode claude` routes each task through the Claude Agent SDK instead of the scripted
+edit. See `coordinator/README.md`.
+
+The packfile layer is usable as a library on its own:
 
 ```go
-f, _ := os.Open("objects/pack/pack-abc123.pack")
-st, _ := f.Stat()
-
-r, _ := pack.NewReader(f, st.Size())
+r, _ := pack.NewReader(f, size)
 byID, _ := r.BuildOffsetIndex()
-
 for id, offset := range byID {
     obj, _ := r.ObjectAt(offset)
     fmt.Printf("%s  %-6s  %d bytes\n", id.Short(8), obj.Type, obj.Size())
 }
-```
 
-Write a packfile the git client will accept:
-
-```go
 var buf bytes.Buffer
-name, err := pack.WriteAll(&buf, objects)
-```
-
-Walk a tree:
-
-```go
-obj, _ := r.ObjectAt(offset)
-tree, _ := object.DecodeTree(obj.Payload)
-
-for _, e := range tree.Entries {
-    fmt.Printf("%s %s %s\n", e.Mode, e.ID.Short(8), e.Name)
-}
-```
-
-Trade compression against packing time:
-
-```go
-pw, _ := pack.NewWriter(w, uint32(len(objects)))
-pw.SetWindow(100) // default is 10
-pw.SetDepth(50)
+name, err := pack.WriteAll(&buf, objects) // git index-pack accepts the result
 ```
 
 ## Benchmarks
@@ -127,6 +170,31 @@ go test ./internal/bench -v
 ```
 
 One corpus on one machine is never enough.
+
+### Agents
+
+What an agent pays to start a task, measured against the same server with the SQLite
+backend. The repository is 400 files from the cobra corpus.
+
+| Setup path | Time | Bytes moved |
+|---|---:|---:|
+| `git clone` then grep locally | 1.31 s | 7.97 MB |
+| grep over the API, read 2 files | 118 ms | 19.3 KB |
+
+Eleven times faster and 423 times fewer bytes, for the common case of a task that
+touches a few files.
+
+| Operation | Result |
+|---|---|
+| Fork a branch | 171 µs, 0 objects copied |
+| 20 stock git clients pushing at once | 20/20 landed in 709 ms, no lost refs |
+| 40 concurrent pushes, SQLite backend | all landed, no lost refs |
+| grep, rare pattern, 400 files | 122 ms |
+| grep, common pattern, 400 files, limit 50 | 18 ms |
+| Fleet of 5 agents, fork + grep + read + commit + merge | 106 ms, 35 requests, 0.8 KB, 0 clones |
+
+Grep runs one worker per core and stops reading once it has four times the requested
+limit, which is what makes the common-pattern case faster than the rare one.
 
 ### Throughput
 
@@ -179,17 +247,25 @@ from the tree walk should bring the default window back to 10 at window-250 comp
 git clone / push / fetch ────┐
    smart HTTP, stock client  ├──▶  Perry
                              │      │
-GET  /v1/repos/{r}/grep ─────┤      ├── objects ──▶  SQLite  (local)
-GET  /v1/repos/{r}/file ─────┤      │                S3      (production)
-POST /v1/repos/{r}/fork ─────┘      └── refs ─────▶  one row per ref, compare-and-swap
+GET  /v1/repos/{r}/grep ─────┤      ├── objects ──▶  SQLite, one file per repo
+GET  /v1/repos/{r}/file ─────┤      │               (S3 planned)
+GET  /v1/repos/{r}/files ────┤      │
+POST /v1/repos/{r}/fork ─────┤      └── refs ─────▶  one row per ref, compare-and-swap
+POST /v1/repos/{r}/commit ───┤
+POST /v1/repos/{r}/ref ──────┘
 ```
 
-Packs are immutable. A push writes a new pack and repacking happens in the background,
-so nothing takes a write lock on stored objects. That leaves refs as the only
-serialization point, and every ref update is a compare-and-swap against one row, so
-twenty branches touch twenty rows.
+Objects are written before any ref moves, and refs move only through a compare-and-swap
+batch, so a reader never sees a ref that points at something missing and two writers
+never overwrite each other. A push is a new immutable pack plus one ref batch; twenty
+branches touch twenty rows. A fork is one row.
 
-Reading is where the format gets awkward. Pack entries sit back to back with no
+Commits made through the API are built from blobs up: the changed files become blobs,
+every tree on the path from each file to the root is rewritten, and a commit object is
+written on top. Git trees are hashed by content, so a change to one file in a deep
+directory rewrites only the trees on that path, not the repository.
+
+Reading is where the pack format gets awkward. Pack entries sit back to back with no
 separator, so finding entry k+1 means decompressing entry k and knowing exactly where
 its stream ended. Deflate's worst case is bounded at five bytes per 65535 bytes of
 input, so Perry sizes the read in advance and each entry costs a single `ReadAt`.
@@ -213,7 +289,13 @@ only with itself proves nothing.
 | Read a pack git wrote: 1078 objects, 745 deltas | Every hash verified |
 | `git cat-file -t` vs. our decoded object type | Match |
 | `git index-pack` on a pack we wrote | Accepted |
+| `git verify-pack` on an index we wrote | Accepted, 1078 offsets match |
 | Delta round trip, 300 random insert/delete/overwrite mutations | Pass |
+| `git push` to Perry, `git clone` back | Identical tree, `git fsck` clean |
+| Incremental `git fetch` after a second push | Only new objects sent |
+| Push with a stale ref, from `git` | Refused |
+| 20 `git push` clients at once | 20/20 landed |
+| Commit built through the API, then `git clone` | Clones and checks out cleanly |
 
 Corruption gets the same attention as correctness: bad magic, wrong version, truncated
 streams, flipped bytes in the body and in the trailer, reserved delta opcodes, copies

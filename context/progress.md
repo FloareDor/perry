@@ -186,3 +186,14 @@ end card with `github.com/perry-dev/perry` and the `go install` line.
 
 Remotion's headless shell download does not complete here, so the config
 points at the installed Chrome; `--browser-executable` overrides it.
+
+## README refresh
+
+Status table, installation, examples, how-it-works and testing sections now
+match the code: alpha badge, `go install` plus `perry serve`, curl examples
+for grep/file/files/refs/fork/commit, a fleet run transcript, an Agents
+benchmark table (clone 1.31 s / 7.97 MB vs API 118 ms / 19.3 KB, fork
+171 us, 20/20 pushes in 709 ms, grep 122 ms rare / 18 ms common, fleet of 5
+in 106 ms), and the server-side git cross-checks in the testing table.
+Remaining from the plan: S3 backend, path-aware pack ordering, background
+repacking.
