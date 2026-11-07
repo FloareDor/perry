@@ -219,6 +219,12 @@ Corruption gets the same attention as correctness: bad magic, wrong version, tru
 streams, flipped bytes in the body and in the trailer, reserved delta opcodes, copies
 running past the end of a base, and declared sizes that disagree with the payload.
 
+## Launch video
+
+`video/` is a Remotion project that renders a 73 second launch video with narration
+timed to each scene. `npm install && npm run render` in that directory writes
+`out/launch.mp4`; see `video/README.md` for how the audio is produced.
+
 ## Comparison
 
 |  | Native git protocol | Cloneless read API | Agent fleets | Open source |

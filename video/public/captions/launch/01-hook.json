@@ -1,0 +1,114 @@
+[
+ {
+  "text": "Every",
+  "startMs": 106,
+  "endMs": 346,
+  "timestampMs": 226,
+  "confidence": 1
+ },
+ {
+  "text": " coding",
+  "startMs": 359,
+  "endMs": 718,
+  "timestampMs": 539,
+  "confidence": 1
+ },
+ {
+  "text": " agent",
+  "startMs": 731,
+  "endMs": 1051,
+  "timestampMs": 891,
+  "confidence": 1
+ },
+ {
+  "text": " starts",
+  "startMs": 1184,
+  "endMs": 1489,
+  "timestampMs": 1336,
+  "confidence": 1
+ },
+ {
+  "text": " the",
+  "startMs": 1503,
+  "endMs": 1582,
+  "timestampMs": 1543,
+  "confidence": 1
+ },
+ {
+  "text": " same",
+  "startMs": 1596,
+  "endMs": 1888,
+  "timestampMs": 1742,
+  "confidence": 1
+ },
+ {
+  "text": " way.",
+  "startMs": 1902,
+  "endMs": 2207,
+  "timestampMs": 2054,
+  "confidence": 1
+ },
+ {
+  "text": " It",
+  "startMs": 2646,
+  "endMs": 2739,
+  "timestampMs": 2693,
+  "confidence": 1
+ },
+ {
+  "text": " clones",
+  "startMs": 2753,
+  "endMs": 3098,
+  "timestampMs": 2926,
+  "confidence": 1
+ },
+ {
+  "text": " the",
+  "startMs": 3112,
+  "endMs": 3205,
+  "timestampMs": 3158,
+  "confidence": 1
+ },
+ {
+  "text": " repository.",
+  "startMs": 3218,
+  "endMs": 4082,
+  "timestampMs": 3650,
+  "confidence": 1
+ },
+ {
+  "text": " All",
+  "startMs": 4521,
+  "endMs": 4668,
+  "timestampMs": 4594,
+  "confidence": 1
+ },
+ {
+  "text": " of",
+  "startMs": 4681,
+  "endMs": 4774,
+  "timestampMs": 4727,
+  "confidence": 1
+ },
+ {
+  "text": " it.",
+  "startMs": 4787,
+  "endMs": 4947,
+  "timestampMs": 4867,
+  "confidence": 1
+ },
+ {
+  "text": " Every",
+  "startMs": 5386,
+  "endMs": 5585,
+  "timestampMs": 5485,
+  "confidence": 1
+ },
+ {
+  "text": " time.",
+  "startMs": 5598,
+  "endMs": 5971,
+  "timestampMs": 5785,
+  "confidence": 1
+ }
+]

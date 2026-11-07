@@ -1,0 +1,121 @@
+[
+ {
+  "text": "It's",
+  "startMs": 106,
+  "endMs": 253,
+  "timestampMs": 180,
+  "confidence": 1
+ },
+ {
+  "text": " open",
+  "startMs": 266,
+  "endMs": 558,
+  "timestampMs": 412,
+  "confidence": 1
+ },
+ {
+  "text": " source",
+  "startMs": 572,
+  "endMs": 944,
+  "timestampMs": 758,
+  "confidence": 1
+ },
+ {
+  "text": " and",
+  "startMs": 957,
+  "endMs": 1051,
+  "timestampMs": 1004,
+  "confidence": 1
+ },
+ {
+  "text": " ships",
+  "startMs": 1064,
+  "endMs": 1516,
+  "timestampMs": 1290,
+  "confidence": 1
+ },
+ {
+  "text": " as",
+  "startMs": 1755,
+  "endMs": 1902,
+  "timestampMs": 1828,
+  "confidence": 1
+ },
+ {
+  "text": " one",
+  "startMs": 1915,
+  "endMs": 2141,
+  "timestampMs": 2028,
+  "confidence": 1
+ },
+ {
+  "text": " binary.",
+  "startMs": 2154,
+  "endMs": 2699,
+  "timestampMs": 2427,
+  "confidence": 1
+ },
+ {
+  "text": " SQLite",
+  "startMs": 3138,
+  "endMs": 3830,
+  "timestampMs": 3484,
+  "confidence": 1
+ },
+ {
+  "text": " on",
+  "startMs": 3910,
+  "endMs": 4016,
+  "timestampMs": 3963,
+  "confidence": 1
+ },
+ {
+  "text": " your",
+  "startMs": 4029,
+  "endMs": 4149,
+  "timestampMs": 4089,
+  "confidence": 1
+ },
+ {
+  "text": " laptop,",
+  "startMs": 4162,
+  "endMs": 4774,
+  "timestampMs": 4468,
+  "confidence": 1
+ },
+ {
+  "text": " the",
+  "startMs": 5040,
+  "endMs": 5133,
+  "timestampMs": 5086,
+  "confidence": 1
+ },
+ {
+  "text": " same",
+  "startMs": 5146,
+  "endMs": 5439,
+  "timestampMs": 5293,
+  "confidence": 1
+ },
+ {
+  "text": " store",
+  "startMs": 5452,
+  "endMs": 5718,
+  "timestampMs": 5585,
+  "confidence": 1
+ },
+ {
+  "text": " in",
+  "startMs": 5731,
+  "endMs": 5798,
+  "timestampMs": 5765,
+  "confidence": 1
+ },
+ {
+  "text": " production.",
+  "startMs": 5811,
+  "endMs": 6370,
+  "timestampMs": 6090,
+  "confidence": 1
+ }
+]

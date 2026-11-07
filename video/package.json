@@ -1,0 +1,27 @@
+{
+  "name": "perry-launch-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Launch video for perry, rendered with Remotion",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render Launch out/launch.mp4",
+    "voiceover": "python scripts/voiceover.py",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/captions": "4.0.398",
+    "@remotion/cli": "4.0.398",
+    "@remotion/google-fonts": "4.0.398",
+    "@remotion/media": "4.0.398",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.398",
+    "mediabunny": "1.24.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

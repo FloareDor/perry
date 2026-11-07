@@ -1,0 +1,142 @@
+[
+ {
+  "text": "It",
+  "startMs": 106,
+  "endMs": 199,
+  "timestampMs": 153,
+  "confidence": 1
+ },
+ {
+  "text": " speaks",
+  "startMs": 213,
+  "endMs": 572,
+  "timestampMs": 392,
+  "confidence": 1
+ },
+ {
+  "text": " native",
+  "startMs": 585,
+  "endMs": 878,
+  "timestampMs": 731,
+  "confidence": 1
+ },
+ {
+  "text": " git.",
+  "startMs": 891,
+  "endMs": 1197,
+  "timestampMs": 1044,
+  "confidence": 1
+ },
+ {
+  "text": " Clone,",
+  "startMs": 1636,
+  "endMs": 1928,
+  "timestampMs": 1782,
+  "confidence": 1
+ },
+ {
+  "text": " push,",
+  "startMs": 1955,
+  "endMs": 2314,
+  "timestampMs": 2134,
+  "confidence": 1
+ },
+ {
+  "text": " fetch.",
+  "startMs": 2420,
+  "endMs": 2886,
+  "timestampMs": 2653,
+  "confidence": 1
+ },
+ {
+  "text": " The",
+  "startMs": 3338,
+  "endMs": 3391,
+  "timestampMs": 3364,
+  "confidence": 1
+ },
+ {
+  "text": " same",
+  "startMs": 3404,
+  "endMs": 3697,
+  "timestampMs": 3551,
+  "confidence": 1
+ },
+ {
+  "text": " packfiles,",
+  "startMs": 3710,
+  "endMs": 4521,
+  "timestampMs": 4116,
+  "confidence": 1
+ },
+ {
+  "text": " the",
+  "startMs": 4721,
+  "endMs": 4827,
+  "timestampMs": 4774,
+  "confidence": 1
+ },
+ {
+  "text": " same",
+  "startMs": 4840,
+  "endMs": 5186,
+  "timestampMs": 5013,
+  "confidence": 1
+ },
+ {
+  "text": " smart",
+  "startMs": 5199,
+  "endMs": 5585,
+  "timestampMs": 5392,
+  "confidence": 1
+ },
+ {
+  "text": " HTTP,",
+  "startMs": 5665,
+  "endMs": 6569,
+  "timestampMs": 6117,
+  "confidence": 1
+ },
+ {
+  "text": " no",
+  "startMs": 6968,
+  "endMs": 7154,
+  "timestampMs": 7061,
+  "confidence": 1
+ },
+ {
+  "text": " wrapper",
+  "startMs": 7168,
+  "endMs": 7593,
+  "timestampMs": 7380,
+  "confidence": 1
+ },
+ {
+  "text": " around",
+  "startMs": 7606,
+  "endMs": 7886,
+  "timestampMs": 7746,
+  "confidence": 1
+ },
+ {
+  "text": " the",
+  "startMs": 7899,
+  "endMs": 7979,
+  "timestampMs": 7939,
+  "confidence": 1
+ },
+ {
+  "text": " git",
+  "startMs": 7992,
+  "endMs": 8178,
+  "timestampMs": 8085,
+  "confidence": 1
+ },
+ {
+  "text": " binary.",
+  "startMs": 8192,
+  "endMs": 8737,
+  "timestampMs": 8464,
+  "confidence": 1
+ }
+]

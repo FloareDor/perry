@@ -165,3 +165,24 @@ One test expectation was also wrong rather than the code: git sorts a tree
 entry for a directory as though its name ended in `/`, and since `.` (0x2E)
 is below `/` (0x2F) which is below `0` (0x30), the entries `a.c`, `a` (a
 directory) and `a0` sort in that order.
+
+## Launch video
+
+`video/` holds a Remotion project that renders a 73 s launch video at
+1920x1080, 30 fps. Nine scenes, one spoken line each, from `src/scenes.ts`.
+
+The narration is generated per scene by `scripts/voiceover.py` with a neural
+voice (en-US-AndrewNeural, rate -6%, pitch -8 Hz) and each scene is sized at
+composition time from its MP3, so cuts follow the voice. Word timings from
+the same pass drive lower-third captions; the script's own tokens are
+substituted for the spoken words so punctuation survives. A bed of three
+sines under 160 Hz (mean -27 dB, mixed at 0.35) plays underneath.
+
+Scenes: clone hook, twenty-agent lock contention, name card, native git
+push, clone vs grep split (1.31 s / 7.97 MB against 118 ms / 19.3 KB),
+twenty-agent fleet grid with coordinator log, three measured tiles (20/20
+pushes in 709 ms, 171 us fork, 0 lost updates), install and serve, and an
+end card with `github.com/perry-dev/perry` and the `go install` line.
+
+Remotion's headless shell download does not complete here, so the config
+points at the installed Chrome; `--browser-executable` overrides it.
