@@ -9,7 +9,7 @@ Perry is a git server for coding agents. It serves clone, push and fetch over th
 wire protocol, and it serves an HTTP API that lets an agent grep a repository, read one
 file at one ref, fork a branch and commit to it without cloning anything.
 
-The protocol is implemented in Go rather than shelling out to the `git` binary. Objects
+Perry implements the protocol in Go rather than shelling out to the `git` binary. Objects
 and refs live in one SQLite file per repository. A TypeScript coordinator runs a fleet of
 agents against it.
 
@@ -53,7 +53,7 @@ stock client, so everything downstream of the repository keeps working.
 
 **It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
-**It is a storage and protocol layer, and intends to stay one.** No web UI, pull
+**It is a storage and protocol layer, and will stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
 mirroring.
 
@@ -178,8 +178,9 @@ backend. The repository is 400 files from the cobra corpus.
 | `git clone` then grep locally | 1.31 s | 7.97 MB |
 | grep over the API, read 2 files | 118 ms | 19.3 KB |
 
-Eleven times faster and 423 times fewer bytes, for the common case of a task that
-touches a few files.
+That is eleven times faster than cloning and 423 times fewer bytes, for a task that
+touches a few files. Against `git worktree add` on a repository already on disk the
+gap is much smaller; the comparison here is against a fresh clone.
 
 | Operation | Result |
 |---|---|
@@ -191,7 +192,7 @@ touches a few files.
 | Fleet of 5 agents, fork + grep + read + commit + merge | 106 ms, 35 requests, 0.8 KB, 0 clones |
 
 Grep runs one worker per core and stops reading once it has four times the requested
-limit, which is what makes the common-pattern case faster than the rare one.
+limit, so the common-pattern case finishes faster than the rare one.
 
 ### Throughput
 
@@ -231,7 +232,7 @@ Pack size by delta window                     git's own pack: 537 KB
      └────────────────────────────────────────────────
 ```
 
-The order is what makes the window small. Sorted by type and size alone, the same
+Ordering keeps the window small. Sorted by type and size alone, the same
 objects at window 10 pack to 2.20 MB, 4.2x git, and need a window of 250 to catch up.
 With revisions of one file next to each other, the right base is nearly always within
 ten slots, and a wider window buys 5% for forty times the packing time.
