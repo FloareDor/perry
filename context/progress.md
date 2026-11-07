@@ -10,6 +10,7 @@ Newest entry at the top of the log.
 | 1 | Objects + pack reader | **done** |
 | 1 | Pack writer with delta compression | **done** |
 | 1 | Pack v2 index (.idx) | not started |
+| - | README with real benchmarks | **done** |
 | 2 | pkt-line + upload-pack (clone) | not started |
 | 3 | receive-pack (push) + SQLite store + CAS refs | not started |
 | 4 | S3 backend + 40-way concurrency | not started |
@@ -34,6 +35,50 @@ own object set and ordering, but it does rule out the writer being wildly
 inefficient.
 
 ## Log
+
+### 2026-11-07 — iteration 2: benchmarks, a 108x fix, and the README
+
+Added `internal/bench`, measured against a real repo, wrote README.md.
+
+Corpus: shallow bare clone of spf13/cobra. 1078 objects, 10.19 MB
+uncompressed, 69% of pack entries are deltas. AMD Ryzen 7 5800H, Go 1.21.
+
+**A 108x read regression, caused by iteration 1's own correctness fix.**
+Making the counting reader implement `io.ByteReader` was right: it stops
+`compress/flate` wrapping the input in a `bufio.Reader` and reading ahead,
+which is what made entry offsets wrong. But it also meant flate pulled one
+byte at a time, and each byte became a `ReadAt` against the file. Resolving
+the corpus took 4.32 s at 124 KB/s. Fixed by reading each entry into memory
+with a single `ReadAt` and inflating from a `bytes.Reader`, which is already
+a `ByteReader`. The slab size is known in advance because deflate's worst
+case is bounded at five bytes per 65535 bytes of input. Now 40 ms at
+13.16 MB/s.
+
+Also removed a double inflate: `BuildOffsetIndex` scanned every entry and
+then re-read each one. `Scan` now hands the inflated bytes to its callback.
+
+**Compression is 4.2x worse than git's at the default window, and the cause
+is object ordering, not the delta search.**
+
+| Window | Pack size | vs raw | vs git | Pack time |
+|---:|---:|---:|---:|---:|
+| 0 | 2.63 MB | 3.9x | 5.02x | 0.46 s |
+| 10 | 2.20 MB | 4.6x | 4.19x | 2.00 s |
+| 25 | 1.69 MB | 6.0x | 3.21x | 4.25 s |
+| 50 | 1.22 MB | 8.4x | 2.32x | 8.26 s |
+| 100 | 825 KB | 12.7x | 1.54x | 16.00 s |
+| 250 | 535 KB | 19.5x | 1.00x | 37.50 s |
+
+At window 250 we match git's 537 KB exactly, in 37 seconds against git's
+well under one. Git sorts objects by type, then filename, then descending
+size, so revisions of one file are adjacent and the right base is always a
+few slots away. Perry sorts by type and size only because the packing layer
+has no path information, so it compensates by searching wider.
+
+**Fix, queued after the server:** thread paths down from the tree walk and
+sort on them. Expect window 10 to reach roughly window 250 compression.
+
+Delta codec throughput: `ApplyDelta` 6.36 GB/s, `MakeDelta` 159 MB/s.
 
 ### 2026-11-07 — iteration 1: object model and packfiles
 

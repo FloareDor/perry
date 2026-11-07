@@ -104,7 +104,7 @@ func TestWriterProducesDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	deltas := 0
-	if err := r.Scan(func(e Entry) error {
+	if err := r.Scan(func(e Entry, _ []byte) error {
 		if e.IsDelta() {
 			deltas++
 		}
@@ -290,7 +290,7 @@ func TestAgainstRealGit(t *testing.T) {
 		// Delta entries must be present, or this test is not exercising the
 		// hard path at all.
 		deltas, total := 0, 0
-		if err := r.Scan(func(e Entry) error {
+		if err := r.Scan(func(e Entry, _ []byte) error {
 			total++
 			if e.IsDelta() {
 				deltas++

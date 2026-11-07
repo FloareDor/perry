@@ -184,16 +184,67 @@ func (p *Reader) readEntryHeader(off int64) (Entry, error) {
 	return e, nil
 }
 
+// maxCompressedSize bounds how large a deflate stream can be for a given
+// amount of input. The worst case is all-stored blocks, which cost five
+// bytes per 65535 input bytes, plus zlib's two-byte header and four-byte
+// checksum.
+func maxCompressedSize(expect int64) int64 {
+	return expect + 5*(expect/65535+1) + 64
+}
+
 // inflateAt decompresses the deflate stream starting at off and reports how
 // many compressed bytes it consumed, which is how the sequential scanner
 // finds the next entry.
+//
+// The stream is pulled into memory in one read rather than streamed from the
+// file. Pack entries sit back to back with no separator, so the reader needs
+// the exact compressed length, and getting that out of compress/flate means
+// handing it an io.ByteReader it will not wrap in a buffer of its own.
+// Pointed straight at a file, that degenerates into one read syscall per
+// byte. Pointed at a bytes.Reader, which is already a ByteReader, the count
+// stays exact and the whole entry costs a single ReadAt.
 func (p *Reader) inflateAt(off int64, expect int64) ([]byte, int64, error) {
-	sr := io.NewSectionReader(p.r, off, p.size-off)
-	cr := &countingReader{r: sr}
+	avail := p.size - off
+	if avail <= 0 {
+		return nil, 0, fmt.Errorf("pack: entry data at %d is past the end of the pack", off)
+	}
 
-	zr, err := zlib.NewReader(cr)
+	// Read a slab big enough for any legal encoding of expect bytes. If the
+	// stream somehow needs more, which means the pack is corrupt, retry
+	// against the rest of the file before giving up.
+	slab := maxCompressedSize(expect)
+	if slab > avail {
+		slab = avail
+	}
+
+	data := make([]byte, slab)
+	n, err := p.r.ReadAt(data, off)
+	if err != nil && n == 0 {
+		return nil, 0, fmt.Errorf("pack: read entry data at %d: %w", off, err)
+	}
+
+	out, consumed, err := inflateFrom(data[:n], expect)
+	if err != nil && slab < avail {
+		full := make([]byte, avail)
+		fn, rerr := p.r.ReadAt(full, off)
+		if rerr != nil && fn == 0 {
+			return nil, 0, fmt.Errorf("pack: read entry data at %d: %w", off, rerr)
+		}
+		out, consumed, err = inflateFrom(full[:fn], expect)
+	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("pack: zlib at %d: %w", off, err)
+		return nil, 0, fmt.Errorf("pack: inflate at %d: %w", off, err)
+	}
+	return out, consumed, nil
+}
+
+// inflateFrom decompresses one zlib member from the front of data and
+// returns the output together with the number of input bytes it consumed.
+func inflateFrom(data []byte, expect int64) ([]byte, int64, error) {
+	br := bytes.NewReader(data)
+	zr, err := zlib.NewReader(br)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer zr.Close()
 
@@ -201,15 +252,14 @@ func (p *Reader) inflateAt(off int64, expect int64) ([]byte, int64, error) {
 	// allocated once rather than grown. A stream that disagrees is corrupt.
 	out := make([]byte, expect)
 	if _, err := io.ReadFull(zr, out); err != nil {
-		return nil, 0, fmt.Errorf("pack: inflate at %d: %w", off, err)
+		return nil, 0, err
 	}
-
-	// Drain the rest of the deflate stream so the consumed count covers the
-	// whole member, including its trailing adler32 checksum.
+	// Drain the remainder so the consumed count covers the whole member,
+	// including its trailing adler32 checksum.
 	if _, err := io.Copy(io.Discard, zr); err != nil {
-		return nil, 0, fmt.Errorf("pack: drain at %d: %w", off, err)
+		return nil, 0, err
 	}
-	return out, cr.n, nil
+	return out, int64(len(data) - br.Len()), nil
 }
 
 // ObjectAt resolves the object stored at a pack offset, following any delta
@@ -238,17 +288,29 @@ func (p *Reader) objectAt(off int64, depth int) (*object.Object, error) {
 	if err != nil {
 		return nil, err
 	}
+	return p.resolveEntry(e, data, depth)
+}
+
+// resolveEntry turns one entry's inflated stream into a whole object,
+// applying its delta chain if it has one.
+//
+// It takes the already-inflated bytes so that a caller which has just
+// scanned the entry does not pay to decompress the same bytes twice.
+func (p *Reader) resolveEntry(e Entry, data []byte, depth int) (*object.Object, error) {
+	if depth > maxDeltaDepth {
+		return nil, fmt.Errorf("pack: delta chain at %d exceeds depth %d (corrupt or cyclic)", e.Offset, maxDeltaDepth)
+	}
 
 	var result *object.Object
 	switch e.Type {
 	case typeOfsDelta:
 		base, err := p.objectAt(e.BaseOffset, depth+1)
 		if err != nil {
-			return nil, fmt.Errorf("pack: base of delta at %d: %w", off, err)
+			return nil, fmt.Errorf("pack: base of delta at %d: %w", e.Offset, err)
 		}
 		payload, err := ApplyDelta(base.Payload, data)
 		if err != nil {
-			return nil, fmt.Errorf("pack: apply delta at %d: %w", off, err)
+			return nil, fmt.Errorf("pack: apply delta at %d: %w", e.Offset, err)
 		}
 		// A delta never changes the type; it inherits its base's.
 		result = &object.Object{Type: base.Type, Payload: payload}
@@ -256,11 +318,11 @@ func (p *Reader) objectAt(off int64, depth int) (*object.Object, error) {
 	case typeRefDelta:
 		base, err := p.resolveByID(e.BaseID, depth+1)
 		if err != nil {
-			return nil, fmt.Errorf("pack: base %s of delta at %d: %w", e.BaseID, off, err)
+			return nil, fmt.Errorf("pack: base %s of delta at %d: %w", e.BaseID, e.Offset, err)
 		}
 		payload, err := ApplyDelta(base.Payload, data)
 		if err != nil {
-			return nil, fmt.Errorf("pack: apply delta at %d: %w", off, err)
+			return nil, fmt.Errorf("pack: apply delta at %d: %w", e.Offset, err)
 		}
 		result = &object.Object{Type: base.Type, Payload: payload}
 
@@ -269,7 +331,7 @@ func (p *Reader) objectAt(off int64, depth int) (*object.Object, error) {
 	}
 
 	p.mu.Lock()
-	p.cache[off] = result
+	p.cache[e.Offset] = result
 	p.mu.Unlock()
 	return result, nil
 }
@@ -297,18 +359,21 @@ func (p *Reader) resolveByID(id object.ID, depth int) (*object.Object, error) {
 // Entries are laid out back to back with no table of contents, so the only
 // way to find entry k+1 is to inflate entry k and see where its stream ends.
 // This is why building an index is a full pass over the file.
-func (p *Reader) Scan(fn func(Entry) error) error {
+func (p *Reader) Scan(fn func(Entry, []byte) error) error {
 	off := int64(headerSize)
 	for i := uint32(0); i < p.hdr.Count; i++ {
 		e, err := p.readEntryHeader(off)
 		if err != nil {
 			return fmt.Errorf("pack: entry %d of %d: %w", i, p.hdr.Count, err)
 		}
-		_, consumed, err := p.inflateAt(e.DataOffset, e.Size)
+		data, consumed, err := p.inflateAt(e.DataOffset, e.Size)
 		if err != nil {
 			return fmt.Errorf("pack: entry %d of %d: %w", i, p.hdr.Count, err)
 		}
-		if err := fn(e); err != nil {
+		// The callback receives the entry's own stream, still in delta form
+		// if the entry is a delta. Handing it over means a caller that needs
+		// the content does not inflate the same bytes a second time.
+		if err := fn(e, data); err != nil {
 			return err
 		}
 		off = e.DataOffset + consumed
@@ -337,8 +402,8 @@ func (p *Reader) BuildOffsetIndex() (map[object.ID]int64, error) {
 	p.offsetByID = byID
 	p.mu.Unlock()
 
-	err := p.Scan(func(e Entry) error {
-		o, err := p.ObjectAt(e.Offset)
+	err := p.Scan(func(e Entry, data []byte) error {
+		o, err := p.resolveEntry(e, data, 0)
 		if err != nil {
 			return err
 		}
@@ -366,37 +431,4 @@ func (p *Reader) VerifyChecksum() error {
 		return fmt.Errorf("pack: checksum mismatch: computed %x, trailer says %x", got, want)
 	}
 	return nil
-}
-
-// countingReader reports exactly how many bytes a decompressor consumed.
-//
-// It implements io.ByteReader deliberately. compress/flate wraps a plain
-// io.Reader in a bufio.Reader and then reads ahead, so the underlying count
-// would overshoot the end of the deflate stream by however much happened to
-// be buffered. Pack entries are stored back to back with no separator, so an
-// overshooting count puts the next entry at the wrong offset and the whole
-// scan derails. Offering ByteReader makes flate read through this type
-// directly, and the count becomes exact.
-type countingReader struct {
-	r   io.Reader
-	n   int64
-	one [1]byte
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
-	return n, err
-}
-
-func (c *countingReader) ReadByte() (byte, error) {
-	n, err := c.r.Read(c.one[:])
-	c.n += int64(n)
-	if n == 1 {
-		return c.one[0], nil
-	}
-	if err == nil {
-		err = io.ErrNoProgress
-	}
-	return 0, err
 }
