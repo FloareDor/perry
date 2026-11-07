@@ -1,7 +1,6 @@
 # Perry: build progress
 
-Living log for the autonomous build loop. Plan: [plan.md](plan.md).
-Newest entry at the top of the log.
+Build log. Plan: [plan.md](plan.md). Newest entry first.
 
 ## Status
 
@@ -46,7 +45,7 @@ the git binary.
 
 ## Log
 
-### 2026-11-07, iteration 3: the server works
+### 2026-11-07: the server works
 
 A real `git` client can now clone from and push to perry.
 
@@ -79,14 +78,14 @@ own reference row, so there is nothing for them to contend over.
 
 **Next:** SQLite backend for persistence, then the cloneless read API.
 
-### 2026-11-07, iteration 2: benchmarks, a 108x fix, and the README
+### 2026-11-07: benchmarks, a 108x fix, and the README
 
 Added `internal/bench`, measured against a real repository, wrote the README.
 
 Corpus: shallow bare clone of spf13/cobra. 1078 objects, 10.19 MB
 uncompressed, 69% of pack entries are deltas. AMD Ryzen 7 5800H, Go 1.21.
 
-**A 108x read regression, caused by iteration 1's own correctness fix.**
+**A 108x read regression, caused by the correctness fix above.**
 Making the counting reader implement `io.ByteReader` was right: it stops
 `compress/flate` wrapping the input in a `bufio.Reader` and reading ahead,
 which is what made entry offsets wrong. It also meant flate pulled one byte
@@ -122,7 +121,7 @@ sort on them. Expect window 10 to reach roughly window 250 compression.
 
 Delta codec throughput: `ApplyDelta` 6.36 GB/s, `MakeDelta` 159 MB/s.
 
-### 2026-11-07, iteration 1: object model and packfiles
+### 2026-11-07: object model and packfiles
 
 Built and verified the two lowest layers.
 
