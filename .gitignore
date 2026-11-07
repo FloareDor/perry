@@ -1,0 +1,8 @@
+/perry
+/perry.exe
+/out/
+/testdata/*.git/
+node_modules/
+*.pack
+*.idx
+.env
