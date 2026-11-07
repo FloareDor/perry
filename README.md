@@ -302,9 +302,11 @@ running past the end of a base, and declared sizes that disagree with the payloa
 
 ## Launch video
 
-`video/` is a Remotion project that renders a 73 second launch video with narration
-timed to each scene. `npm install && npm run render` in that directory writes
-`out/launch.mp4`; see `video/README.md` for how the audio is produced.
+[Watch it](https://github.com/FloareDor/perry/releases/download/v0.1.0/launch.mp4) (73 seconds).
+
+`video/` is the Remotion project that renders it, with narration timed to each scene.
+`npm install && npm run render` in that directory writes `out/launch.mp4`; see
+`video/README.md` for how the audio is produced.
 
 ## Comparison
 
