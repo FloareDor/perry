@@ -1,0 +1,7 @@
+[
+  { "id": "t01", "prompt": "document the Helper function", "locate": "func Helper", "paths": ["src"] },
+  { "id": "t02", "prompt": "document the Other function", "locate": "func Other", "paths": ["src"] },
+  { "id": "t03", "prompt": "note the entry point", "locate": "func main", "paths": ["src"] },
+  { "id": "t04", "prompt": "expand the readme intro", "locate": "# Demo" },
+  { "id": "t05", "prompt": "expand the guide", "locate": "# Guide" }
+]

@@ -102,13 +102,26 @@ func (s *Store) Has(ctx context.Context, id object.ID) (bool, error) {
 	return true, nil
 }
 
+// payloadFor returns a payload that is never nil.
+//
+// database/sql maps a nil []byte to SQL NULL, and the objects table forbids
+// it. Git has legitimate zero-length objects, an empty file and the empty
+// tree among them, so a nil payload has to reach SQLite as an empty blob
+// rather than as NULL.
+func payloadFor(obj *object.Object) []byte {
+	if obj.Payload == nil {
+		return []byte{}
+	}
+	return obj.Payload
+}
+
 func (s *Store) Put(ctx context.Context, obj *object.Object) (object.ID, error) {
 	id := obj.ID()
 	// An object's name is its content, so a second write of the same name
 	// is the same bytes. Ignoring the conflict is correct and saves a read.
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO objects (id, type, payload) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING`,
-		id[:], int(obj.Type), obj.Payload)
+		id[:], int(obj.Type), payloadFor(obj))
 	if err != nil {
 		return id, fmt.Errorf("sqlite: put %s: %w", id, err)
 	}
@@ -139,7 +152,7 @@ func (s *Store) PutBatch(ctx context.Context, objs []*object.Object) error {
 
 	for _, o := range objs {
 		id := o.ID()
-		if _, err := stmt.ExecContext(ctx, id[:], int(o.Type), o.Payload); err != nil {
+		if _, err := stmt.ExecContext(ctx, id[:], int(o.Type), payloadFor(o)); err != nil {
 			return fmt.Errorf("sqlite: put %s: %w", id, err)
 		}
 	}

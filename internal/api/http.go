@@ -57,6 +57,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.refs(w, r, s)
 	case endpoint == "fork" && r.Method == http.MethodPost:
 		h.fork(w, r, s)
+	case endpoint == "commit" && r.Method == http.MethodPost:
+		h.commit(w, r, s)
+	case endpoint == "ref" && r.Method == http.MethodPost:
+		h.updateRef(w, r, s)
 	default:
 		writeError(w, http.StatusNotFound, "unknown endpoint: "+endpoint)
 	}
@@ -172,6 +176,34 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request, s store.Store) {
 		return
 	}
 	writeJSON(w, map[string]string{"branch": body.Branch, "target": target.String()})
+}
+
+func (h *Handler) commit(w http.ResponseWriter, r *http.Request, s store.Store) {
+	var req CommitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "malformed commit request: "+err.Error())
+		return
+	}
+	res, err := Commit(r.Context(), s, req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, res)
+}
+
+func (h *Handler) updateRef(w http.ResponseWriter, r *http.Request, s store.Store) {
+	var req UpdateRefRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "malformed ref update: "+err.Error())
+		return
+	}
+	res, err := UpdateRef(r.Context(), s, req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, res)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
