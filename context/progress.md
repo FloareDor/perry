@@ -197,3 +197,18 @@ benchmark table (clone 1.31 s / 7.97 MB vs API 118 ms / 19.3 KB, fork
 in 106 ms), and the server-side git cross-checks in the testing table.
 Remaining from the plan: S3 backend, path-aware pack ordering, background
 repacking.
+
+## Path-aware pack ordering
+
+`pack.PathHints` walks commits and trees in the object set and gives every
+tree and blob the hash of the first path it was seen at, using git's own
+`pack_name_hash` (verified against the C reference on three paths).
+`pack.Order` sorts by type, path hash, then descending size, and `WriteAll`
+now uses it. Objects no tree in the set names, as on an incremental fetch,
+sort after the rest with no hint.
+
+On the cobra corpus at the default window of 10 the pack went from 2.20 MB
+to 456 KB, against git's 537 KB, and packs in 1.55 s instead of 2.0 s.
+Window 250 now buys 5% for forty times the time. Real git still clones,
+fetches and fscks the result. README tables updated; the "packs are 4x
+larger" caveat is gone.

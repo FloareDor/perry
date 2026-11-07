@@ -29,9 +29,8 @@ Alpha. Every layer is cross-checked against git 2.35: packs Perry writes pass
 | `internal/api` | grep, file, tree, fork, commit, ref | Complete |
 | `coordinator/` | TypeScript agent fleet runner | Complete |
 
-Not yet done: an S3 backend, background repacking, and path-aware object ordering in
-the packer (see [Benchmarks](#benchmarks)). Run it on a laptop or a single VM; do not
-put production data behind it yet.
+Not yet done: an S3 backend and background repacking. Run it on a laptop or a single
+VM; do not put production data behind it yet.
 
 ## Why use Perry?
 
@@ -56,9 +55,6 @@ stock client, so everything downstream of the repository keeps working.
 **It is a storage and protocol layer, and intends to stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
 mirroring.
-
-**Packs are larger than git's at the default settings.** Roughly 4x, for reasons covered
-under [Benchmarks](#benchmarks). Closing that gap is planned work, not a solved problem.
 
 **If one team of humans shares one repository, use anything else.** The design assumes
 many short-lived branches written by machines.
@@ -209,37 +205,39 @@ read many times.
 
 ### Compression
 
-Perry's packer against git's own output for the same 1078 objects. The delta window is
-how many recently written objects each new object is compared against.
+Perry's packer against git's own output for the same 1078 objects. Objects are sorted
+by type, then by a hash of the path they were first seen at, then by size, which is
+git's order; the delta window is how many recently written objects each new object is
+compared against.
 
 | Window | Pack size | vs. uncompressed | vs. git | Pack time |
 |---:|---:|---:|---:|---:|
-| 0 (off) | 2.63 MB | 3.9x | 5.02x | 0.46 s |
-| **10** (default) | **2.20 MB** | **4.6x** | **4.19x** | **2.00 s** |
-| 25 | 1.69 MB | 6.0x | 3.21x | 4.25 s |
-| 50 | 1.22 MB | 8.4x | 2.32x | 8.26 s |
-| 100 | 825 KB | 12.7x | 1.54x | 16.00 s |
-| 250 | 535 KB | 19.5x | 1.00x | 37.50 s |
+| 0 (off) | 2.63 MB | 3.9x | 5.02x | 0.30 s |
+| **10** (default) | **456 KB** | **22.9x** | **0.85x** | **1.55 s** |
+| 25 | 440 KB | 23.7x | 0.82x | 5.36 s |
+| 50 | 434 KB | 24.1x | 0.81x | 13.1 s |
+| 100 | 433 KB | 24.1x | 0.81x | 29.2 s |
+| 250 | 431 KB | 24.2x | 0.80x | 66.6 s |
 
 ```
 Pack size by delta window                     git's own pack: 537 KB
   0  ████████████████████████████████████████████████  2.63 MB
- 10  ████████████████████████████████████████          2.20 MB
- 25  ██████████████████████████████                    1.69 MB
- 50  ██████████████████████                            1.22 MB
-100  ███████████████                                    825 KB
-250  █████████                                          535 KB
+ 10  ████████                                           456 KB
+ 25  ████████                                           440 KB
+ 50  ████████                                           434 KB
+100  ████████                                           433 KB
+250  ████████                                           431 KB
      └────────────────────────────────────────────────
 ```
 
-At a window of 250 Perry matches git's compression exactly, and takes 37 seconds to do
-what git does in under one.
+The order is what makes the window small. Sorted by type and size alone, the same
+objects at window 10 pack to 2.20 MB, 4.2x git, and need a window of 250 to catch up.
+With revisions of one file next to each other, the right base is nearly always within
+ten slots, and a wider window buys 5% for forty times the packing time.
 
-The gap comes from object ordering. Git sorts objects by type, then filename, then
-descending size, so successive revisions of a file land next to each other and a good
-base is always within a few slots. Perry's packer has no path information and
-sorts by type and size alone, so it compensates by searching wider. Threading paths down
-from the tree walk should bring the default window back to 10 at window-250 compression.
+Why Perry's pack comes out smaller than git's here is not settled. Git's pack was
+written by a server answering a shallow clone, and a server reuses the deltas it
+already has rather than searching for better ones.
 
 ## How it works
 

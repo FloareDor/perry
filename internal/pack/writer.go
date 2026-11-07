@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"sort"
 
 	"github.com/perry-dev/perry/internal/object"
 )
@@ -283,19 +282,13 @@ func (pw *Writer) Close() (object.ID, error) {
 // WriteAll packs a set of objects in a sensible order and returns the pack's
 // name.
 //
-// Order matters for compression, not correctness. Grouping by type and then
-// by descending size puts similar objects near each other in the window, so
-// the delta search has good candidates to find. Git sorts by type, path and
-// size for the same reason.
+// Order matters for compression, not correctness. Objects are grouped by
+// type, then by the hash of the path they were first seen at, then by
+// descending size, which is git's own order. Revisions of one file land next
+// to each other, so the delta window has the right base in view without
+// being widened.
 func WriteAll(w io.Writer, objs []*object.Object) (object.ID, error) {
-	sorted := make([]*object.Object, len(objs))
-	copy(sorted, objs)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].Type != sorted[j].Type {
-			return sorted[i].Type < sorted[j].Type
-		}
-		return len(sorted[i].Payload) > len(sorted[j].Payload)
-	})
+	sorted := Order(objs, PathHints(objs))
 
 	pw, err := NewWriter(w, uint32(len(sorted)))
 	if err != nil {

@@ -89,12 +89,20 @@ func TestPackCompressionReport(t *testing.T) {
 	whole, wholeDur := writeWith(0)
 	w10, w10Dur := writeWith(10)
 
+	var sortedBuf bytes.Buffer
+	sortedStart := time.Now()
+	if _, err := pack.WriteAll(&sortedBuf, objs); err != nil {
+		t.Fatal(err)
+	}
+	sorted, sortedDur := int64(sortedBuf.Len()), time.Since(sortedStart)
+
 	t.Logf("objects:            %d", len(objs))
 	t.Logf("uncompressed:       %s", humanBytes(raw))
 	t.Logf("perry, no deltas:   %s  (%.1fx)  in %v", humanBytes(whole), float64(raw)/float64(whole), wholeDur.Round(time.Millisecond))
-	t.Logf("perry, window 10:   %s  (%.1fx)  in %v", humanBytes(w10), float64(raw)/float64(w10), w10Dur.Round(time.Millisecond))
+	t.Logf("perry, window 10:   %s  (%.1fx)  in %v  (type and size order)", humanBytes(w10), float64(raw)/float64(w10), w10Dur.Round(time.Millisecond))
+	t.Logf("perry, WriteAll:    %s  (%.1fx)  in %v  (type, path, size order)", humanBytes(sorted), float64(raw)/float64(sorted), sortedDur.Round(time.Millisecond))
 	t.Logf("git's own pack:     %s  (%.1fx)", humanBytes(gitPackSize), float64(raw)/float64(gitPackSize))
-	t.Logf("perry / git ratio:  %.2fx", float64(w10)/float64(gitPackSize))
+	t.Logf("perry / git ratio:  %.2fx unsorted, %.2fx path-sorted", float64(w10)/float64(gitPackSize), float64(sorted)/float64(gitPackSize))
 
 	if w10 >= whole {
 		t.Errorf("deltification made the pack bigger: %d vs %d", w10, whole)
@@ -170,16 +178,15 @@ func humanBytes(n int64) string {
 	}
 }
 
-// TestWindowSensitivity shows what the delta window buys. Perry's packs are
-// larger than git's mostly because git groups objects by path before
-// packing, so revisions of one file land next to each other and the search
-// always has the right base in view. Perry sorts by type and size only, so
-// it has to widen the window to find the same bases.
+// TestWindowSensitivity shows what the delta window buys, with objects in
+// the path-aware order WriteAll uses. Before that order existed the packer
+// needed a window of 250 to match git; with it the default of 10 is close.
 func TestWindowSensitivity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow")
 	}
 	objs, gitPackSize := loadFixture(t)
+	objs = pack.Order(objs, pack.PathHints(objs))
 
 	var raw int64
 	for _, o := range objs {
