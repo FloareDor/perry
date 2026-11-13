@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: build, vet, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Pinned to the version in go.mod rather than a literal, so the two
+          # cannot drift apart.
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      # -short skips the benchmark package, which needs cloned corpora and
+      # runs for minutes. The gate here is correctness, not performance.
+      - name: test
+        run: go test ./... -short -count=1
+
+      # The server is concurrent by design: compare-and-swap ref updates, one
+      # SQLite handle shared across requests, agents racing on one branch. A
+      # data race there is a correctness bug that ordinary tests can pass
+      # straight through, so the suite runs twice.
+      - name: test -race
+        run: go test ./... -short -count=1 -race
+
+  # Benchmarks are not part of the gate: they need real repositories cloned
+  # from GitHub and take tens of minutes. This job exists so they can be run
+  # deliberately, from the Actions tab, when a change is expected to move the
+  # numbers.
+  bench:
+    name: benchmarks (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fetch corpora
+        run: sh scripts/corpora.sh
+
+      - name: run benchmarks
+        run: make bench

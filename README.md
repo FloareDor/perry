@@ -1,5 +1,6 @@
 # Perry
 
+[![CI](https://github.com/FloareDor/perry/actions/workflows/ci.yml/badge.svg)](https://github.com/FloareDor/perry/actions/workflows/ci.yml)
 [![Go Reference](https://img.shields.io/badge/go-reference-00ADD8?logo=go&logoColor=white)](https://pkg.go.dev/github.com/perry-dev/perry)
 [![Go 1.26+](https://img.shields.io/badge/go-1.26%2B-00ADD8)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
