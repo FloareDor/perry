@@ -83,7 +83,21 @@ func NewWriter(w io.Writer, count uint32) (*Writer, error) {
 func (pw *Writer) SetWindow(n int) { pw.window = n }
 
 // SetDepth sets the longest delta chain the writer will build.
-func (pw *Writer) SetDepth(n int) { pw.depth = n }
+//
+// It is clamped to MaxDepth. Without the clamp a caller could ask for chains
+// longer than the reader will follow, and the resulting pack would be
+// unreadable: a cold read of its deepest object fails with an error that
+// claims the pack is corrupt or cyclic, when it is neither. Writing a pack
+// this package cannot read back is never what the caller meant.
+func (pw *Writer) SetDepth(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if n > MaxDepth {
+		n = MaxDepth
+	}
+	pw.depth = n
+}
 
 // WriteObject appends one object, deltifying it against the window when that
 // is smaller than storing it whole.

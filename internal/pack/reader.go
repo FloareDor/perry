@@ -269,8 +269,8 @@ func (p *Reader) ObjectAt(off int64) (*object.Object, error) {
 }
 
 func (p *Reader) objectAt(off int64, depth int) (*object.Object, error) {
-	if depth > maxDeltaDepth {
-		return nil, fmt.Errorf("pack: delta chain at %d exceeds depth %d (corrupt or cyclic)", off, maxDeltaDepth)
+	if depth > MaxDepth {
+		return nil, fmt.Errorf("pack: delta chain at %d exceeds depth %d (corrupt or cyclic)", off, MaxDepth)
 	}
 
 	p.mu.Lock()
@@ -297,8 +297,8 @@ func (p *Reader) objectAt(off int64, depth int) (*object.Object, error) {
 // It takes the already-inflated bytes so that a caller which has just
 // scanned the entry does not pay to decompress the same bytes twice.
 func (p *Reader) resolveEntry(e Entry, data []byte, depth int) (*object.Object, error) {
-	if depth > maxDeltaDepth {
-		return nil, fmt.Errorf("pack: delta chain at %d exceeds depth %d (corrupt or cyclic)", e.Offset, maxDeltaDepth)
+	if depth > MaxDepth {
+		return nil, fmt.Errorf("pack: delta chain at %d exceeds depth %d (corrupt or cyclic)", e.Offset, MaxDepth)
 	}
 
 	var result *object.Object

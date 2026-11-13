@@ -11,11 +11,15 @@ import (
 // ErrBadDelta reports a corrupt or inconsistent delta stream.
 var ErrBadDelta = errors.New("pack: malformed delta")
 
-// maxDeltaDepth bounds how many deltas may chain before a full object is
-// reached. Git's own packs stay under 50. A corrupt or hostile pack can
-// describe a cycle, and without this bound resolving it would recurse until
-// the process died.
-const maxDeltaDepth = 100
+// MaxDepth bounds how many deltas may chain before a full object is reached.
+// Git's own packs stay under 50. A corrupt or hostile pack can describe a
+// cycle, and without this bound resolving it would recurse until the process
+// died.
+//
+// It bounds the writer as well as the reader: SetDepth clamps to it, so this
+// package cannot produce a pack it would refuse to read back.
+const MaxDepth = 100
+
 
 // ApplyDelta reconstructs a target object from a base and a delta stream.
 //
