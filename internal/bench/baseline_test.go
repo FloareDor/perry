@@ -245,129 +245,136 @@ func runSetupPaths(t *testing.T, spec repoSpec) {
 	c := buildRealCorpus(t, spec)
 	var results []setupResult
 
-	// grepAndRead is the agent's task: find the needle, read that file.
-	// pathspec, when set, is the directory the agent already knows about.
-	grepAndRead := func(work string, pathspec string) bool {
-		args := []string{"-C", work, "grep", "-n", spec.needle}
-		if pathspec != "" {
-			args = append(args, "--", pathspec)
-		}
-		cmd := exec.Command("git", args...)
-		cmd.Env = gitEnvB()
-		out, err := cmd.CombinedOutput()
-		if err != nil || len(out) == 0 {
-			return false
-		}
-		first := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
-		path := strings.SplitN(first, ":", 2)[0]
-		if _, err := os.ReadFile(filepath.Join(work, filepath.FromSlash(path))); err != nil {
-			return false
-		}
-		return true
-	}
+	// Both sides are measured by one byte counter on one socket.
+	//
+	// This used to report git's transfer from `git count-objects -v`, which
+	// measures what git materialised on disk, and perry's from the length of
+	// its HTTP response bodies. Those are different quantities -- a pack on
+	// disk is not the bytes that arrived, and comparing one against the other
+	// is not a wire-to-wire comparison however close the two usually are. Now
+	// every path runs through a counting proxy, so "wire" means the same
+	// thing in every row.
+	//
+	// Serving the git baselines over real smart HTTP rather than file:// is
+	// what makes that possible, since file:// transfers no bytes over any
+	// socket at all. It also costs git the advantage file:// gave it here.
+	gitRoot := t.TempDir()
+	gitNet := newNetShaper(t, gitHTTPBackend(t, gitRoot).URL, 0)
+	perryNet := newNetShaper(t, c.ts.URL, 0)
 
-	// Full clone, which is what an agent does today.
-	{
+	// cloneSetup runs one git variant end to end and records what crossed the
+	// proxy. Each variant pushes nothing, but gets its own origin anyway so a
+	// partial clone's promisor traffic cannot be attributed to its neighbour.
+	cloneSetup := func(name, variant, note string, sparse bool, cloneArgs ...string) {
+		forkOrigin(t, c.origin, gitRoot, variant+".git")
 		d := t.TempDir()
-		start := time.Now()
-		gitB(t, d, "clone", "-q", fileURL(c.origin), "work")
 		w := filepath.Join(d, "work")
-		ok := grepAndRead(w, "")
+
+		gitNet.reset()
+		start := time.Now()
+		args := append([]string{"clone", "-q"}, cloneArgs...)
+		args = append(args, gitNet.srv.URL+"/"+variant+".git", "work")
+		gitB(t, d, args...)
+		pathspec := ""
+		if sparse {
+			gitB(t, w, "sparse-checkout", "set", spec.sparse)
+			pathspec = spec.sparse
+		}
+		ok := grepAndReadIn(t, w, spec.needle, pathspec)
 		results = append(results, setupResult{
-			name: "full clone + git grep", dur: time.Since(start),
-			wire: packBytes(t, w), disk: treeBytes(w), complete: ok,
-			note: "what an agent does today",
+			name: name, dur: time.Since(start), wire: gitNet.wire(),
+			disk: treeBytes(w), complete: ok, note: note,
 		})
 	}
 
-	// Shallow clone, depth 1. With real history this is a real saving.
-	{
-		d := t.TempDir()
-		start := time.Now()
-		gitB(t, d, "clone", "-q", "--depth", "1", fileURL(c.origin), "work")
-		w := filepath.Join(d, "work")
-		ok := grepAndRead(w, "")
-		results = append(results, setupResult{
-			name: "shallow clone --depth 1", dur: time.Since(start),
-			wire: packBytes(t, w), disk: treeBytes(w), complete: ok,
-			note: "typical ephemeral agent setup",
-		})
-	}
+	cloneSetup("full clone + git grep", "full",
+		"what an agent does today", false)
+	cloneSetup("shallow clone --depth 1", "shallow",
+		"typical ephemeral agent setup", false, "--depth", "1")
 
-	// Shallow and treeless: the cheapest checkout git can produce.
-	{
-		d := t.TempDir()
-		start := time.Now()
-		gitB(t, d, "clone", "-q", "--depth", "1", "--filter=blob:none", fileURL(c.origin), "work")
-		w := filepath.Join(d, "work")
-		ok := grepAndRead(w, "")
-		results = append(results, setupResult{
-			name: "shallow + blob:none + grep", dur: time.Since(start),
-			wire: packBytes(t, w), disk: treeBytes(w), complete: ok,
-			note: "lazy fetch defeats a blind grep",
-		})
-	}
+	// Shallow and treeless: the cheapest checkout git can produce. The lazy
+	// blob fetch it then needs is promisor traffic, which the proxy counts
+	// along with the clone -- that is the point of the row.
+	cloneSetup("shallow + blob:none + grep", "treeless",
+		"lazy fetch defeats a blind grep", false,
+		"--depth", "1", "--filter=blob:none")
 
 	// Partial plus a sparse checkout of the one directory, for an agent that
 	// already knows where to look. This is git's best case, and it is given
 	// an answer the other paths have to find for themselves.
-	{
-		d := t.TempDir()
-		start := time.Now()
-		gitB(t, d, "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse",
-			fileURL(c.origin), "work")
-		w := filepath.Join(d, "work")
-		gitB(t, w, "sparse-checkout", "set", spec.sparse)
-		ok := grepAndRead(w, spec.sparse)
-		results = append(results, setupResult{
-			name: "shallow + sparse (dir known)", dur: time.Since(start),
-			wire: packBytes(t, w), disk: treeBytes(w), complete: ok,
-			note: "git's best case; needs the answer first",
-		})
-	}
+	cloneSetup("shallow + sparse (dir known)", "sparse",
+		"git's best case; needs the answer first", true,
+		"--depth", "1", "--filter=blob:none", "--sparse")
 
-	// Warm worktree on a repository already on disk.
+	// Warm worktree on a repository already on disk. Nothing is fetched, so
+	// the proxy should see nothing; it is reset and read anyway rather than
+	// hard-coding a zero, since an assumed number is how the old accounting
+	// went wrong.
 	{
+		gitNet.reset()
 		start := time.Now()
 		wt := filepath.Join(t.TempDir(), "wt")
 		gitB(t, c.warm, "worktree", "add", "-q", "--detach", wt, "HEAD")
-		ok := grepAndRead(wt, "")
+		ok := grepAndReadIn(t, wt, spec.needle, "")
 		results = append(results, setupResult{
 			name: "warm worktree (repo on disk)", dur: time.Since(start),
-			wire: 0, disk: treeBytes(wt), complete: ok,
+			wire: gitNet.wire(), disk: treeBytes(wt), complete: ok,
 			note: "no transfer; needs a prior clone",
 		})
 	}
 
 	// Perry over HTTP: grep the server, read the one file that matched.
+	//
+	// This used to call the HTTP grep endpoint and then call api.Grep in
+	// process to find out which path had matched, which searched the
+	// repository twice. The second search was on the clock but produced no
+	// HTTP traffic, so it inflated perry's time while leaving its byte count
+	// untouched -- wrong in both directions at once. The response is parsed
+	// now, which is what a real client has to do anyway.
 	{
-		ctx := context.Background()
-		start := time.Now()
-		q := c.ts.URL + "/v1/repos/bench/grep?q=" + url.QueryEscape(spec.needle) + "&ref=main&limit=10"
-		resp, err := http.Get(q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		n1, _ := io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		base := perryNet.srv.URL + "/v1/repos/bench"
+		cl := &http.Client{}
 
-		res, err := api.Grep(ctx, c.store, api.GrepOptions{
-			Pattern: spec.needle, Rev: "main", Limit: 10,
-		})
-		if err != nil || len(res.Matches) == 0 {
-			t.Fatalf("perry grep found nothing for %q: %v", spec.needle, err)
-		}
-		resp2, err := http.Get(c.ts.URL + "/v1/repos/bench/file?ref=main&path=" +
-			url.QueryEscape(res.Matches[0].Path))
+		perryNet.reset()
+		start := time.Now()
+
+		resp, err := cl.Get(base + "/grep?q=" + url.QueryEscape(spec.needle) + "&ref=main&limit=10")
 		if err != nil {
 			t.Fatal(err)
 		}
-		n2, _ := io.Copy(io.Discard, resp2.Body)
+		var found struct {
+			Matches []struct {
+				Path string `json:"path"`
+			} `json:"matches"`
+		}
+		decErr := json.NewDecoder(resp.Body).Decode(&found)
+		resp.Body.Close()
+		if decErr != nil {
+			t.Fatalf("decoding grep response: %v", decErr)
+		}
+		if len(found.Matches) == 0 {
+			t.Fatalf("perry grep found nothing for %q", spec.needle)
+		}
+
+		resp2, err := cl.Get(base + "/file?ref=main&path=" + url.QueryEscape(found.Matches[0].Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, readErr := io.ReadAll(resp2.Body)
 		resp2.Body.Close()
+		if readErr != nil {
+			t.Fatalf("reading %s: %v", found.Matches[0].Path, readErr)
+		}
+		dur := time.Since(start)
+
+		// The other rows prove they finished by reading the file off disk, so
+		// this one checks the needle really is in what came back rather than
+		// reporting completion on faith.
 		results = append(results, setupResult{
-			name: "perry API (grep + file)", dur: time.Since(start),
-			wire: n1 + n2, disk: 0, complete: true,
-			note: "no checkout, nothing on disk",
+			name: "perry API (grep + file)", dur: dur,
+			wire: perryNet.wire(), disk: 0,
+			complete: bytes.Contains(content, []byte(spec.needle)),
+			note:     "no checkout, nothing on disk",
 		})
 	}
 
@@ -833,4 +840,32 @@ func countAgentLines(s string) int {
 		}
 	}
 	return len(seen)
+}
+
+// grepAndReadIn is the agent's task in a working tree: find the needle, then
+// read the file it matched in. pathspec, when set, is the directory the agent
+// already knows about, which is what makes the sparse row a best case rather
+// than a fair fight.
+//
+// Reading the file is not decoration. A treeless clone resolves `git grep`
+// against blobs it has to fetch lazily, so a path that reports a match has
+// not necessarily put the content anywhere an agent could use.
+func grepAndReadIn(t testing.TB, work, needle, pathspec string) bool {
+	t.Helper()
+	args := []string{"-C", work, "grep", "-n", needle}
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd := exec.Command("git", args...)
+	cmd.Env = gitEnvB()
+	out, err := cmd.CombinedOutput()
+	if err != nil || len(out) == 0 {
+		return false
+	}
+	first := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	path := strings.SplitN(first, ":", 2)[0]
+	if _, err := os.ReadFile(filepath.Join(work, filepath.FromSlash(path))); err != nil {
+		return false
+	}
+	return true
 }

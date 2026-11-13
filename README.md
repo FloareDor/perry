@@ -206,29 +206,65 @@ limits. These numbers are one machine.
 
 What an agent pays to start a task: find the file containing a given symbol and have
 its contents in hand. The corpus is [grpc/grpc-go](https://github.com/grpc/grpc-go) at
-full depth, 6100 commits and 1424 files. The git baselines are served over `file://`,
-which is faster than HTTP; perry is measured over HTTP, so the comparison is
-conservative.
+full depth, 6100 commits and 1424 files.
+
+Every path runs over real HTTP and every byte is counted by the same proxy, so "wire"
+means one thing in every row. An earlier version of this table read git's transfer off
+`git count-objects -v`, which measures what git wrote to disk rather than what crossed
+the network, and compared it against the length of perry's HTTP responses. Those are
+different quantities, and the numbers below are smaller for it.
 
 | Setup path | Time | Wire | Disk left |
 |---|---:|---:|---:|
-| full clone, then `git grep` | 4.07 s | 45.94 MB | 60.67 MB |
-| shallow clone `--depth 1` | 5.00 s | 3.39 MB | 18.10 MB |
-| shallow + `--filter=blob:none` | 5.43 s | 3.45 MB | 18.28 MB |
-| shallow + sparse, directory known | 1.99 s | 737 KB | 3.08 MB |
-| warm worktree, repository on disk | 1.79 s | 0 B | 14.53 MB |
-| **grep over the API, read the file** | **956 ms** | **27.2 KB** | **0 B** |
+| full clone, then `git grep` | 5.55 s | 44.44 MB | 60.67 MB |
+| shallow clone `--depth 1` | 4.77 s | 3.37 MB | 18.11 MB |
+| shallow + `--filter=blob:none` | 5.48 s | 3.46 MB | 18.28 MB |
+| shallow + sparse, directory known | 2.23 s | 746 KB | 3.08 MB |
+| warm worktree, repository on disk | 1.53 s | 0 B | 14.53 MB |
+| **grep over the API, read the file** | **728 ms** | **27.2 KB** | **0 B** |
 
-Against a full clone that is 1690 times fewer bytes on the wire. Against the best git
-path — a shallow clone with a sparse checkout, which has to be told which directory to
-look in — it is about twice as fast and moves 27 times fewer bytes, while finding the
-file on its own.
+Against a full clone that is about 1,600 times fewer bytes. Against the best git path
+that still transfers anything — a shallow clone with a sparse checkout, which has to be
+told which directory to look in — it is roughly 3 times faster and moves about 27 times
+fewer bytes, while finding the file on its own.
+
+The warm worktree is the honest comparison and it transfers nothing at all, because its
+objects are already local. Perry does not beat it on bytes and never will; what it does
+is reach the same answer without the clone that put those objects there, and without
+leaving 14.53 MB on disk.
 
 A blind `blob:none` grep is the slowest path on the board, because lazy blob fetch
 defeats a search that does not already know its answer. Server-side grep is the
 structural difference, not the transport.
 
-Pushing a repository into perry is paid once: 1.3 s for cobra, 22.7 s for grpc-go.
+Pushing a repository into perry is paid once: 1.1 s for cobra, 22.2 s for grpc-go.
+
+### The whole task, with latency
+
+A faster git operation is not a faster agent, so this measures the whole unit of work —
+locate the symbol, read its file, edit it, publish the edit — from nothing on disk to
+the change being durable on the server. Agents do not run next to their git host, so the
+same proxy adds a fixed delay to every request on both sides.
+
+grpc-go, time to finish the task:
+
+| Path | 0 ms | 25 ms | 75 ms | Wire | Requests |
+|---|---:|---:|---:|---:|---:|
+| full clone | 5.99 s | 6.34 s | 6.38 s | 44.46 MB | 5 |
+| shallow `--depth 1` | 5.58 s | 5.85 s | 5.98 s | 3.39 MB | 5 |
+| shallow + sparse, directory known | 2.97 s | 3.02 s | 3.59 s | 769 KB | 9 |
+| warm worktree + fetch | 3.03 s | 3.05 s | 2.99 s | 45.9 KB | 4 |
+| **perry API** | **427 ms** | **617 ms** | **718 ms** | **63.3 KB** | **4** |
+
+Latency does not change the ordering, and it does not flatter perry either: every path
+pays round trips × latency, and perry's four requests against git's four to nine means
+the *ratio* narrows as the link gets worse — 7× down to 5× against the sparse checkout —
+even as the absolute gap grows from 2.54 s to 2.87 s. Perry's advantage here is work
+avoided, not round trips saved.
+
+What this does not show is a real agent finishing a real task sooner. The edit is
+scripted, it is one agent, and no model is in the loop. That benchmark does not exist
+yet.
 
 ### Contention
 
