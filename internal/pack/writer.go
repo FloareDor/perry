@@ -23,6 +23,20 @@ const (
 	DefaultDepth  = 50
 )
 
+// DefaultDepthPenalty is how much base selection discounts a candidate that
+// is already deep in a delta chain. At 0 the writer picks whichever base
+// yields the smallest delta, which is what it used to do; at 1 a base sitting
+// at the depth limit must halve the delta to be worth taking.
+//
+// 0.5 was measured across windows 10 to 250 on two corpora. It is the
+// smallest value that makes pack size fall monotonically as the window grows,
+// and it is no worse than 0 at the default window on either corpus. Larger
+// values keep shrinking the widest packs but start costing bytes at window
+// 10, which is the one that ships.
+//
+// See (*Writer).score for why this is not zero.
+const DefaultDepthPenalty = 0.5
+
 // Writer builds a packfile.
 //
 // Objects are added one at a time and written immediately, so memory stays
@@ -38,6 +52,10 @@ type Writer struct {
 
 	window int
 	depth  int
+
+	// depthPenalty biases base selection against candidates that already sit
+	// deep in a delta chain. See DefaultDepthPenalty.
+	depthPenalty float64
 
 	// recent is the delta window: the last few objects written, kept
 	// uncompressed so a new object can be compared against them.
@@ -63,6 +81,8 @@ func NewWriter(w io.Writer, count uint32) (*Writer, error) {
 		count:  count,
 		window: DefaultWindow,
 		depth:  DefaultDepth,
+
+		depthPenalty: DefaultDepthPenalty,
 	}
 	pw.raw = w
 	pw.w = io.MultiWriter(w, pw.hash)
@@ -136,8 +156,28 @@ func (pw *Writer) WriteObject(o *object.Object) error {
 	return nil
 }
 
-// findBase picks the window entry that produces the smallest delta, or nil if
-// no candidate beats writing the object whole.
+// score rates a candidate base: the delta it produces, inflated by how deep
+// the chain behind it already runs.
+//
+// Choosing purely on delta size is locally optimal and globally wrong. The
+// smallest delta often points at a base that is already deep in a chain, and
+// taking it pushes that chain one link closer to the limit. The cost lands on
+// later objects: once a base sits at the limit it is refused for everything
+// after it, and those objects are written whole. On a corpus with long file
+// histories that is enough to make a wider delta window produce a *bigger*
+// pack, because the extra candidates a wide window finds are mostly deep ones.
+//
+// The penalty rises linearly with depth, so a base at the limit has to beat a
+// fresh one by DefaultDepthPenalty to win.
+func (pw *Writer) score(deltaLen, baseDepth int) float64 {
+	if pw.depth <= 0 || pw.depthPenalty == 0 {
+		return float64(deltaLen)
+	}
+	return float64(deltaLen) * (1 + pw.depthPenalty*float64(baseDepth)/float64(pw.depth))
+}
+
+// findBase picks the window entry with the best score, or nil if no candidate
+// beats writing the object whole.
 func (pw *Writer) findBase(o *object.Object) (*windowEntry, []byte) {
 	if pw.window == 0 || len(o.Payload) == 0 {
 		return nil, nil
@@ -145,6 +185,7 @@ func (pw *Writer) findBase(o *object.Object) (*windowEntry, []byte) {
 
 	var bestEntry *windowEntry
 	var bestDelta []byte
+	bestScore := 0.0
 
 	for i := range pw.recent {
 		cand := &pw.recent[i]
@@ -158,8 +199,9 @@ func (pw *Writer) findBase(o *object.Object) (*windowEntry, []byte) {
 			continue
 		}
 		d := MakeDelta(cand.payload, o.Payload)
-		if bestDelta == nil || len(d) < len(bestDelta) {
-			bestEntry, bestDelta = cand, d
+		score := pw.score(len(d), cand.depth)
+		if bestDelta == nil || score < bestScore {
+			bestEntry, bestDelta, bestScore = cand, d, score
 		}
 	}
 
