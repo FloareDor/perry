@@ -20,7 +20,6 @@ var ErrBadDelta = errors.New("pack: malformed delta")
 // package cannot produce a pack it would refuse to read back.
 const MaxDepth = 100
 
-
 // ApplyDelta reconstructs a target object from a base and a delta stream.
 //
 // A delta is a short program: a header giving the expected base and result
