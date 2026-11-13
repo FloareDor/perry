@@ -57,6 +57,12 @@ stock client, so everything downstream of the repository keeps working.
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
 mirroring.
 
+**It does not serve shallow or partial clones.** `--depth` is refused and `--filter` is
+ignored, so a client that wants a checkout gets the whole history. An agent that needs
+a real working tree, to run a build or a test suite, pays more against perry than
+against a host that supports both. The read API exists so that most agents do not need
+one.
+
 **If one team of humans shares one repository, use anything else.** The design assumes
 many short-lived branches written by machines.
 
@@ -80,8 +86,9 @@ Or build from source:
 ```bash
 git clone https://github.com/perry-dev/perry
 cd perry
-go test ./...
-go build -o perry ./cmd/perry
+make test     # the suite, without the slow benchmarks
+make build    # writes ./perry
+make help     # every target
 ```
 
 ## Examples
@@ -157,30 +164,66 @@ name, err := pack.WriteAll(&buf, objects) // git index-pack accepts the result
 
 ## Benchmarks
 
-AMD Ryzen 7 5800H, Windows 11, Go 1.26. The corpus is a shallow bare clone of
-[spf13/cobra](https://github.com/spf13/cobra): 1078 objects, 10.19 MB uncompressed, 69%
-of pack entries stored as deltas. Reproduce with:
+AMD Ryzen 7 5800H, Windows 11, Go 1.26. Reproduce with:
 
 ```bash
-git clone --bare --depth 200 https://github.com/spf13/cobra testdata/cobra.git
-go test ./internal/bench -v
+make corpora   # three real repositories into testdata/, about 50 MB, cached
+make bench     # about ten minutes
 ```
 
-These numbers are one corpus on one machine.
+[BENCHMARKS.md](BENCHMARKS.md) has the full method, every baseline and the known
+limits. These numbers are one machine.
 
 ### Agents
 
-What an agent pays to start a task, measured against the same server with the SQLite
-backend. The repository is 400 files from the cobra corpus.
+What an agent pays to start a task: find the file containing a given symbol and have
+its contents in hand. The corpus is [grpc/grpc-go](https://github.com/grpc/grpc-go) at
+full depth, 6100 commits and 1424 files. The git baselines are served over `file://`,
+which is faster than HTTP; perry is measured over HTTP, so the comparison is
+conservative.
 
-| Setup path | Time | Bytes moved |
-|---|---:|---:|
-| `git clone` then grep locally | 1.31 s | 7.97 MB |
-| grep over the API, read 2 files | 118 ms | 19.3 KB |
+| Setup path | Time | Wire | Disk left |
+|---|---:|---:|---:|
+| full clone, then `git grep` | 4.07 s | 45.94 MB | 60.67 MB |
+| shallow clone `--depth 1` | 5.00 s | 3.39 MB | 18.10 MB |
+| shallow + `--filter=blob:none` | 5.43 s | 3.45 MB | 18.28 MB |
+| shallow + sparse, directory known | 1.99 s | 737 KB | 3.08 MB |
+| warm worktree, repository on disk | 1.79 s | 0 B | 14.53 MB |
+| **grep over the API, read the file** | **956 ms** | **27.2 KB** | **0 B** |
 
-That is eleven times faster than cloning and 423 times fewer bytes, for a task that
-touches a few files. Against `git worktree add` on a repository already on disk the
-gap is much smaller; the comparison here is against a fresh clone.
+Against a full clone that is 1690 times fewer bytes on the wire. Against the best git
+path — a shallow clone with a sparse checkout, which has to be told which directory to
+look in — it is about twice as fast and moves 27 times fewer bytes, while finding the
+file on its own.
+
+A blind `blob:none` grep is the slowest path on the board, because lazy blob fetch
+defeats a search that does not already know its answer. Server-side grep is the
+structural difference, not the transport.
+
+Pushing a repository into perry is paid once: 1.3 s for cobra, 22.7 s for grpc-go.
+
+### Contention
+
+Every agent appends its own line to one file on one branch, and the test counts the
+lines that survived. Perry commits with a compare-and-swap and retries on the losing
+side; the git agents push and, on rejection, reset to the new tip and retry. The git
+clones happen before the clock starts.
+
+| Agents | Perry | Retries each | Git | Retries each |
+|---:|---:|---:|---:|---:|
+| 5 | 38 ms | 1.8 | 4.40 s | 3.0 |
+| 20 | 130 ms | 2.0 | 29.55 s | 10.5 |
+| 50 | 516 ms | 3.2 | 2 m 33 s | 24.0 |
+
+No lost updates on either side at any size. Git is correct here, just expensive: its
+retries grow linearly with the number of agents, so total work grows quadratically. A
+losing perry writer re-reads one ref row instead of re-running a fetch, a reset and a
+push.
+
+### Operations
+
+Individual operations, against a generated corpus of 400 files and 7.49 MB. These are
+microbenchmarks of one call at a time, not a comparison against git.
 
 | Operation | Result |
 |---|---|
@@ -207,10 +250,11 @@ once but applied on every read.
 
 ### Compression
 
-Perry's packer against git's own output for the same 1078 objects. Objects are sorted
-by type, then by a hash of the path they were first seen at, then by size, which is
-git's order; the delta window is how many recently written objects each new object is
-compared against.
+Perry's packer against git's own output for 1078 objects: a shallow bare clone of
+[spf13/cobra](https://github.com/spf13/cobra), 10.19 MB uncompressed, 69% of pack
+entries stored as deltas. Objects are sorted by type, then by a hash of the path they
+were first seen at, then by size, which is git's order; the delta window is how many
+recently written objects each new object is compared against.
 
 | Window | Pack size | vs. uncompressed | vs. git | Pack time |
 |---:|---:|---:|---:|---:|
@@ -276,8 +320,15 @@ cycle, and an unbounded resolver would recurse until the process died.
 ## Testing
 
 ```bash
-go test ./...
+make test     # the suite, about twenty seconds
+make bench    # the comparative benchmarks, about ten minutes
 ```
+
+Everything in `internal/bench` is opt in, because together the benchmarks run past the
+default `go test` timeout. `go test ./...` skips them and stays green; `make bench`
+sets `PERRY_BENCH=1` and a longer timeout. Nothing in that package asserts a
+correctness property that is not also covered in `internal/api`, `internal/pack` or
+`internal/server`.
 
 Every layer is checked against the git binary, because a reimplementation that agrees
 only with itself proves nothing.

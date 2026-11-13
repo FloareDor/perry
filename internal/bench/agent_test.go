@@ -127,9 +127,7 @@ func benchServer(t testing.TB, files, linesPerFile int) (*httptest.Server, store
 // agent to start working, cloning the repository versus reading only what
 // it needs through the API.
 func TestAgentSetupCloneVsAPI(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow")
-	}
+	requireBench(t)
 	ts, s, corpusBytes := benchServer(t, 400, 300)
 	ctx := context.Background()
 
@@ -195,9 +193,7 @@ func TestAgentSetupCloneVsAPI(t *testing.T) {
 
 // TestForkCost measures branching a repository for a new agent.
 func TestForkCost(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow")
-	}
+	requireBench(t)
 	_, s, _ := benchServer(t, 200, 200)
 	ctx := context.Background()
 
@@ -223,9 +219,7 @@ func TestForkCost(t *testing.T) {
 // against the SQLite backend, which is where reference contention would
 // show up if the design were wrong.
 func TestConcurrentPushThroughput(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow")
-	}
+	requireBench(t)
 	ts, s, _ := benchServer(t, 60, 100)
 	ctx := context.Background()
 
@@ -313,9 +307,7 @@ func TestConcurrentPushThroughput(t *testing.T) {
 
 // TestGrepLatency measures a cold repository search.
 func TestGrepLatency(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow")
-	}
+	requireBench(t)
 	_, s, corpus := benchServer(t, 400, 300)
 	ctx := context.Background()
 
