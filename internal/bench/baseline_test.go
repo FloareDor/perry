@@ -1,7 +1,9 @@
 package bench
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -536,29 +538,38 @@ type contention struct {
 // TestSameRefContention has every agent append to one file on one branch.
 func TestSameRefContention(t *testing.T) {
 	requireBench(t)
-	for _, agents := range []int{5, 20, 50} {
+	// One agent is the uncontended baseline. It costs each system exactly one
+	// successful write, so the gap at one agent is fixed overhead -- process
+	// spawning, working-tree I/O, HTTP round trips -- and anything above that
+	// at higher counts is what contention itself costs.
+	for _, agents := range []int{1, 5, 20, 50} {
 		t.Run(fmt.Sprintf("%dagents", agents), func(t *testing.T) {
 			c := buildRealCorpus(t, realRepos[0])
 			p := perryContend(t, c, agents)
+			h := perryContendHTTP(t, c, agents)
 			g := gitContend(t, c, agents)
 
+			row := func(name string, r contention) {
+				t.Logf("%-18s %10v  %2d/%d landed, %4d attempts (%.1f each), %d lines survived",
+					name, r.dur.Round(time.Millisecond), r.landed, agents, r.attempts,
+					float64(r.attempts)/float64(agents), r.lines)
+			}
 			t.Logf("%d agents, all appending to %s on main", agents, sharedFile)
-			t.Logf("perry  %v  %d/%d landed, %d attempts (%.1f per agent), %d lines survived",
-				p.dur.Round(time.Millisecond), p.landed, agents, p.attempts,
-				float64(p.attempts)/float64(agents), p.lines)
-			t.Logf("git    %v  %d/%d landed, %d attempts (%.1f per agent), %d lines survived",
-				g.dur.Round(time.Millisecond), g.landed, agents, g.attempts,
-				float64(g.attempts)/float64(agents), g.lines)
-			if p.dur > 0 {
-				t.Logf("perry is %.0fx faster under contention", float64(g.dur)/float64(p.dur))
+			row("perry in process", p)
+			row("perry over HTTP", h)
+			row("git clone+push", g)
+			if h.dur > 0 {
+				t.Logf("perry over HTTP is %.0fx faster than git", float64(g.dur)/float64(h.dur))
 			}
 
 			// The only result that matters: nobody's work was dropped.
-			if p.lines != agents {
-				t.Errorf("perry lost updates: %d of %d lines survived", p.lines, agents)
-			}
-			if g.lines != agents {
-				t.Errorf("git lost updates: %d of %d lines survived", g.lines, agents)
+			for _, r := range []struct {
+				name string
+				c    contention
+			}{{"perry in process", p}, {"perry over HTTP", h}, {"git", g}} {
+				if r.c.lines != agents {
+					t.Errorf("%s lost updates: %d of %d lines survived", r.name, r.c.lines, agents)
+				}
 			}
 		})
 	}
@@ -616,6 +627,110 @@ func perryContend(t *testing.T, c *corpus, agents int) contention {
 	dur := time.Since(start)
 
 	final, err := api.ReadFile(ctx, c.store, "main", sharedFile)
+	if err != nil {
+		t.Fatalf("reading %s back: %v", sharedFile, err)
+	}
+	return contention{
+		dur: dur, attempts: attempts, landed: int(landed),
+		lines: countAgentLines(string(final)),
+	}
+}
+
+// perryContendHTTP is perryContend over the wire. The in-process variant
+// measures the design; this one measures what a remote agent actually pays,
+// with JSON encoding and an HTTP round trip on every read and every attempt.
+func perryContendHTTP(t *testing.T, c *corpus, agents int) contention {
+	const maxAttempts = 200
+	base := c.ts.URL + "/v1/repos/bench"
+
+	tipOf := func(cl *http.Client) (string, error) {
+		resp, err := cl.Get(base + "/refs?prefix=refs/heads/main")
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Refs []struct {
+				Name   string `json:"name"`
+				Target string `json:"target"`
+			} `json:"refs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return "", err
+		}
+		for _, r := range out.Refs {
+			if r.Name == "refs/heads/main" {
+				return r.Target, nil
+			}
+		}
+		return "", fmt.Errorf("main not found")
+	}
+
+	readShared := func(cl *http.Client) []byte {
+		resp, err := cl.Get(base + "/file?ref=main&path=" + sharedFile)
+		if err != nil {
+			return nil
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil
+		}
+		b, _ := io.ReadAll(resp.Body)
+		return b
+	}
+
+	var attempts int64
+	var landed int64
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < agents; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// One client per agent, as separate agents would have.
+			cl := &http.Client{}
+			line := fmt.Sprintf("agent %03d was here\n", i)
+			for n := 0; n < maxAttempts; n++ {
+				atomic.AddInt64(&attempts, 1)
+
+				tip, err := tipOf(cl)
+				if err != nil {
+					return
+				}
+				prev := readShared(cl)
+				body, err := json.Marshal(api.CommitRequest{
+					Branch:  "main",
+					Message: fmt.Sprintf("agent %03d", i),
+					Expect:  tip,
+					Changes: []api.Change{{Path: sharedFile, Content: append(append([]byte{}, prev...), line...)}},
+				})
+				if err != nil {
+					return
+				}
+				resp, err := cl.Post(base+"/commit", "application/json", bytes.NewReader(body))
+				if err != nil {
+					return
+				}
+				code := resp.StatusCode
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if code == http.StatusOK {
+					atomic.AddInt64(&landed, 1)
+					return
+				}
+				if code != http.StatusConflict {
+					t.Errorf("agent %d: HTTP %d", i, code)
+					return
+				}
+				// 409: lost the compare-and-swap, read the new tip and retry.
+			}
+			t.Errorf("agent %d gave up after %d attempts", i, maxAttempts)
+		}(i)
+	}
+	wg.Wait()
+	dur := time.Since(start)
+
+	final, err := api.ReadFile(context.Background(), c.store, "main", sharedFile)
 	if err != nil {
 		t.Fatalf("reading %s back: %v", sharedFile, err)
 	}
