@@ -29,6 +29,7 @@ Alpha. Every layer is cross-checked against git 2.35: packs Perry writes pass
 | `internal/store` | SQLite backend, compare-and-swap refs | Complete |
 | `internal/store` | S3 backend | Not started |
 | `internal/api` | grep, file, tree, fork, commit, ref | Complete |
+| `internal/mcp` | Model Context Protocol adapter | Complete |
 | `coordinator/` | TypeScript agent fleet runner | Complete |
 
 Not yet done: an S3 backend and background repacking. Run it on a laptop or a single
@@ -176,6 +177,58 @@ fleet: 20 tasks, 20 at a time, scripted agent
 
 `--mode claude` routes each task through the Claude Agent SDK instead of the scripted
 edit. See `coordinator/README.md`.
+
+### Connecting a coding agent
+
+`perry mcp` bridges one repository to any agent that speaks the [Model Context
+Protocol](https://modelcontextprotocol.io). It runs on stdio, which is how every MCP
+client launches a local server, so connecting an existing agent is a few lines of its
+configuration rather than a change to how you work:
+
+```json
+{
+  "mcpServers": {
+    "perry": {
+      "command": "perry",
+      "args": ["mcp", "-server", "http://perry.internal:8080", "-repo", "app"],
+      "env": { "PERRY_TOKEN": "..." }
+    }
+  }
+}
+```
+
+For Claude Code specifically:
+
+```bash
+claude mcp add perry --env PERRY_TOKEN=... -- perry mcp -server http://perry.internal:8080 -repo app
+```
+
+Seven tools come with it:
+
+| Tool | What the agent gets |
+| --- | --- |
+| `perry_grep` | a regex search of every file at a revision, matches only |
+| `perry_read_file` | one file's exact bytes, verbatim and unnumbered |
+| `perry_list_files` | the paths at a revision, filtered by a glob |
+| `perry_list_tree` | one directory, with types and sizes |
+| `perry_list_branches` | branches and their tips, for `expect` |
+| `perry_create_branch` | a branch, as a pointer write |
+| `perry_commit` | a commit, from whole-file contents, under compare-and-swap |
+
+The adapter is a client of perry's HTTP API, not of the object store, so the perry
+server can be on another host. That is the point: the agent searches, reads, edits and
+commits without a clone, a checkout, a staging area or a push, and a plain `git clone`
+of the branch it wrote returns a normal repository.
+
+Two things it deliberately does not do. It does not shell out to `git`, so an agent
+given these tools has no local repository to fall back on. And it does not expose a
+"write a diff" tool: `perry_commit` takes each file's complete new contents, because a
+model that emits a unified diff against a file it read is the most common way an
+agent's edit silently fails to apply.
+
+```bash
+perry mcp -server http://perry.internal:8080 -repo app   # $PERRY_TOKEN for auth
+```
 
 The packfile layer is usable as a library:
 
@@ -425,6 +478,15 @@ only with itself proves nothing.
 | Push with a stale ref, from `git` | Refused |
 | 20 `git push` clients at once | 20/20 landed |
 | Commit built through the API, then `git clone` | Clones and checks out cleanly |
+| Commit built over MCP, then `git clone` of that branch | Carries the agent's edit |
+
+The MCP adapter is tested as a protocol, not as a set of helpers: a session is driven
+over real pipes with newline-delimited JSON-RPC, and the end-to-end test walks the
+whole agent loop, locate to read to branch to commit, then reads the result back out of
+the store rather than through the path that wrote it. Separate tests pin down the parts
+that fail quietly: version negotiation, a tool failure arriving as a tool result rather
+than a transport error the model cannot see, a stale `expect` being refused, and
+notifications drawing no reply so the response stream never shifts by one.
 
 Corruption gets the same attention as correctness: bad magic, wrong version, truncated
 streams, flipped bytes in the body and in the trailer, reserved delta opcodes, copies

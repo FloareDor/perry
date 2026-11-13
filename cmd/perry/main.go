@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/perry-dev/perry/internal/api"
+	"github.com/perry-dev/perry/internal/mcp"
 	"github.com/perry-dev/perry/internal/server"
 	"github.com/perry-dev/perry/internal/store"
 	"github.com/perry-dev/perry/internal/store/sqlite"
@@ -25,6 +26,7 @@ const usage = `perry: a git server for coding agents
 
 Usage:
   perry serve [flags]        Run the server
+  perry mcp [flags]          Bridge a repository to a coding agent over MCP
   perry grep <repo> <regex>  Search a repository on disk
   perry ls <repo> [glob]     List files at HEAD
   perry refs <repo>          List references
@@ -41,6 +43,17 @@ Git smart HTTP carries receive-pack, so a perry server without -token accepts
 anonymous pushes to any repository. The default address is loopback, and
 serving a public address without a token is refused unless -insecure is given.
 
+MCP flags:
+  -server  string  perry server URL (default "http://127.0.0.1:8080")
+  -repo    string  repository to expose (required)
+  -token   string  bearer token (default $PERRY_TOKEN)
+  -author  string  commit author name
+  -email   string  commit author email
+
+perry mcp speaks the Model Context Protocol on stdin and stdout, so a coding
+agent configured to run it gets repository search, file reads and commits
+against a remote perry without cloning anything.
+
 Examples:
   perry serve -data ./data
   perry serve -addr 0.0.0.0:8080 -token "$PERRY_TOKEN"
@@ -48,6 +61,7 @@ Examples:
   git clone http://x:"$PERRY_TOKEN"@host:8080/demo.git
   curl 'http://localhost:8080/v1/repos/demo/grep?q=func+main'
   curl 'http://localhost:8080/v1/repos/demo/file?ref=main&path=README.md'
+  perry mcp -server http://perry.internal:8080 -repo demo
 `
 
 func main() {
@@ -60,6 +74,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		serve(os.Args[2:])
+	case "mcp":
+		runMCP(os.Args[2:])
 	case "grep":
 		grep(os.Args[2:])
 	case "ls":
@@ -201,6 +217,41 @@ func serve(args []string) {
 	log.Printf("  git clone http://%s/demo.git", *addr)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// runMCP bridges one repository to a coding agent over the Model Context
+// Protocol.
+//
+// The transport is stdin and stdout, which is what every MCP client launches
+// a local server as, so connecting an existing agent is a few lines of its
+// configuration rather than a change to how the developer works. Logging goes
+// to stderr: stdout carries protocol frames, and one stray line there is a
+// parse error at the other end.
+func runMCP(args []string) {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	server := fs.String("server", "http://127.0.0.1:8080", "perry server URL")
+	repo := fs.String("repo", "", "repository to expose")
+	token := fs.String("token", os.Getenv("PERRY_TOKEN"), "bearer token, defaults to $PERRY_TOKEN")
+	author := fs.String("author", "perry-agent", "commit author name")
+	email := fs.String("email", "agent@perry.local", "commit author email")
+	_ = fs.Parse(args)
+
+	if *repo == "" {
+		fmt.Fprintln(os.Stderr, "perry mcp: -repo is required")
+		os.Exit(2)
+	}
+
+	client := mcp.NewClient(*server, *repo, *token)
+	client.Author, client.Email = *author, *email
+
+	srv := mcp.NewServer(mcp.Tools(client))
+	srv.Log = func(format string, a ...any) { log.Printf("mcp: "+format, a...) }
+
+	log.SetOutput(os.Stderr)
+	log.Printf("mcp: serving %s from %s on stdio", *repo, *server)
+	if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+		log.Fatalf("perry mcp: %v", err)
 	}
 }
 
