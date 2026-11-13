@@ -1,0 +1,5 @@
+# Keep shell scripts and the Makefile LF, so they still run after a
+# checkout on Windows.
+* text=auto
+*.sh text eol=lf
+Makefile text eol=lf

@@ -17,9 +17,13 @@ import (
 // skip rather than invent numbers.
 func findFixturePack(t testing.TB) string {
 	t.Helper()
-	matches, _ := filepath.Glob(filepath.Join("..", "..", "testdata", "*.git", "objects", "pack", "*.pack"))
+	// Pinned to one corpus on purpose. This used to glob every *.git under
+	// testdata and take the first match, which silently changed the numbers
+	// as soon as a second corpus was added.
+	matches, _ := filepath.Glob(filepath.Join("..", "..", "testdata", "cobra.git", "objects", "pack", "*.pack"))
 	if len(matches) == 0 {
-		t.Skip("no fixture pack; run: git clone --bare --depth 200 https://github.com/spf13/cobra testdata/cobra.git")
+		t.Skip("no fixture pack in testdata/cobra.git. Fetch it with:\n" +
+			"\tmake corpora      (or: sh scripts/corpora.sh)")
 	}
 	return matches[0]
 }
@@ -57,9 +61,11 @@ func loadFixture(t testing.TB) ([]*object.Object, int64) {
 }
 
 // TestPackCompressionReport measures perry's pack size against git's own for
-// the same object set, and against storing every object whole. It is a test
-// rather than a benchmark so it runs in CI and prints a table.
+// the same object set, and against storing every object whole. It is written
+// as a test rather than a benchmark so that it prints a table, but it is opt
+// in like everything else here: see requireBench.
 func TestPackCompressionReport(t *testing.T) {
+	requireBench(t)
 	objs, gitPackSize := loadFixture(t)
 
 	var raw int64
@@ -112,6 +118,7 @@ func TestPackCompressionReport(t *testing.T) {
 // TestPackReadThroughput measures how fast perry resolves a whole real pack,
 // deltas included.
 func TestPackReadThroughput(t *testing.T) {
+	requireBench(t)
 	path := findFixturePack(t)
 	f, err := os.Open(path)
 	if err != nil {
@@ -182,9 +189,7 @@ func humanBytes(n int64) string {
 // the path-aware order WriteAll uses. Before that order existed the packer
 // needed a window of 250 to match git; with it the default of 10 is close.
 func TestWindowSensitivity(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow")
-	}
+	requireBench(t)
 	objs, gitPackSize := loadFixture(t)
 	objs = pack.Order(objs, pack.PathHints(objs))
 
