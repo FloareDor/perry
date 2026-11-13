@@ -205,20 +205,33 @@ Pushing a repository into perry is paid once: 1.3 s for cobra, 22.7 s for grpc-g
 ### Contention
 
 Every agent appends its own line to one file on one branch, and the test counts the
-lines that survived. Perry commits with a compare-and-swap and retries on the losing
-side; the git agents push and, on rejection, reset to the new tip and retry. The git
-clones happen before the clock starts.
+lines that survived. Perry reads the tip, reads the file and commits with a
+compare-and-swap, retrying on a 409; the git agents push and, on rejection, reset to
+the new tip and retry. Both go over HTTP. The git clones happen before the clock
+starts, which is generous to git.
 
-| Agents | Perry | Retries each | Git | Retries each |
+| Agents | Perry over HTTP | Retries each | Git | Retries each |
 |---:|---:|---:|---:|---:|
-| 5 | 38 ms | 1.8 | 4.40 s | 3.0 |
-| 20 | 130 ms | 2.0 | 29.55 s | 10.5 |
-| 50 | 516 ms | 3.2 | 2 m 33 s | 24.0 |
+| 1 | 4 ms | 1.0 | 494 ms | 1.0 |
+| 5 | 33 ms | 1.8 | 3.84 s | 3.0 |
+| 20 | 146 ms | 1.6 | 28.93 s | 10.5 |
+| 50 | 393 ms | 2.3 | 2 m 26 s | 24.4 |
 
-No lost updates on either side at any size. Git is correct here, just expensive: its
-retries grow linearly with the number of agents, so total work grows quadratically. A
-losing perry writer re-reads one ref row instead of re-running a fetch, a reset and a
-push.
+No lost updates on either side at any size. Git is correct here, just expensive.
+
+The one-agent row is the control: nobody contends, so it is fixed overhead alone —
+process spawning and working-tree writes against one HTTP round trip. That is already
+135x, and it is not a claim about concurrency. What contention adds on top is the
+growth from 135x to 371x.
+
+The retry counts are the design result. Git's grow linearly with the number of agents,
+so total work grows quadratically: at fifty agents each one pushes 24.4 times to land
+once. Perry's stay near flat at 2.3, because a losing writer re-reads one ref row
+rather than re-running a fetch, a reset and a push.
+
+Perry over HTTP matches perry in process to within noise here, so serialisation is not
+hiding anything. Both are loopback: a remote agent would additionally pay network
+latency on each of the three requests per attempt.
 
 ### Operations
 

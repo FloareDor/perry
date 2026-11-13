@@ -101,27 +101,38 @@ grpc-go. A comparison against "clone it from GitHub each time" should count it.
 
 ## Same-ref contention
 
-Every agent appends its own line to one file on one branch. Every writer has
-to land and no writer may lose another's line, which the test checks by
-counting the distinct lines that survived. Perry commits with a
-compare-and-swap and retries on the losing side; the git agents push and, on
-rejection, reset to the new tip and retry. The git clones happen before the
-clock starts, so this measures the push war alone.
+Every agent appends its own line to one file on one branch. Every writer has to land
+and no writer may lose another's line, which the test checks by counting the distinct
+lines that survived. Perry reads the tip, reads the file and commits with a
+compare-and-swap, retrying on a 409; the git agents push and, on rejection, reset to
+the new tip and retry. Both run over HTTP. The git clones happen before the clock
+starts, so this measures the push war alone.
 
-| Agents | perry | attempts/agent | git | attempts/agent | Speedup |
-|---:|---:|---:|---:|---:|---:|
-| 5 | 38ms | 1.8 | 4.40s | 3.0 | 117x |
-| 20 | 130ms | 2.0 | 29.55s | 10.5 | 227x |
-| 50 | 516ms | 3.2 | 2m33s | 24.0 | 297x |
+| Agents | Perry in process | Perry over HTTP | Retries each | Git | Retries each | Ratio |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 4 ms | 4 ms | 1.0 | 494 ms | 1.0 | 135x |
+| 5 | 46 ms | 33 ms | 1.8 | 3.84 s | 3.0 | 117x |
+| 20 | 115 ms | 146 ms | 1.6 | 28.93 s | 10.5 | 198x |
+| 50 | 430 ms | 393 ms | 2.3 | 2 m 26 s | 24.4 | 371x |
 
-No lost updates on either side at any size: all 5, 20 and 50 lines survived.
-Git is correct here, just expensive.
+No lost updates on either side at any size: all 1, 5, 20 and 50 lines survived. Git is
+correct here, just expensive.
 
-The attempts column is the real finding. Git's retries grow linearly with the
-number of agents, so total work grows quadratically: at fifty agents each one
-pushes twenty-four times to land once. Perry's retries grow slowly, because a
-losing writer re-reads one ref row rather than re-running a fetch, a reset and
-a push.
+**Read the one-agent row first.** Nobody contends at one agent, so it isolates fixed
+overhead: git spawns five processes and writes a working tree per attempt, perry makes
+three HTTP calls. That alone is 135x, and it is not a claim about concurrency. The
+honest concurrency result is the *growth* from 135x to 371x — what contention adds on
+top of the overhead gap.
+
+**The retry counts are the design result.** Git's grow linearly with the agent count,
+so total work grows quadratically: at fifty agents each one pushes 24.4 times to land
+once, 1220 attempts in all. Perry's stay near flat at 2.3, 117 attempts in all, because
+a losing writer re-reads one ref row rather than re-running a fetch, a reset and a push.
+
+**Perry over HTTP matches perry in process to within noise**, so JSON encoding and the
+round trips are not hiding anything at this scale. Perry over HTTP sometimes records
+*fewer* retries than in process, because the slower path spreads the agents out and
+they collide less.
 
 ## Known limits
 
@@ -133,3 +144,8 @@ a push.
   more against perry than against GitHub.
 - Nothing here measures a complete coding task. These are access and write
   costs, not end-to-end task completion.
+- The contention benchmark's HTTP runs are loopback. A remote agent would also
+  pay network latency on each of the three requests per attempt, and a remote
+  git agent would pay it per subprocess round trip too.
+- Git's clones in the contention benchmark happen before the clock starts.
+  Including them would widen the gap.
