@@ -55,6 +55,12 @@ stock client, so everything downstream of the repository keeps working.
 
 **It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
+**Whole-file writes cost the model more than the network saves.** The commit API takes
+each file's complete new contents, so an agent editing a large file re-emits all of it.
+Measured against an optimised git checkout with a real model in the loop, that makes
+Perry three to four times slower on a 733-line file despite moving 53 times fewer bytes.
+The transport is not the bottleneck; this is.
+
 **It is a storage and protocol layer, and will stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
 mirroring.
@@ -282,6 +288,9 @@ that still transfers anything — a shallow clone with a sparse checkout, which 
 told which directory to look in — it is roughly 3 times faster and moves about 27 times
 fewer bytes, while finding the file on its own.
 
+That is code *access*, not a coding task. With a real model in the loop the ordering
+reverses; see [A real agent](#a-real-agent-with-a-model-in-the-loop) below.
+
 The warm worktree is the honest comparison and it transfers nothing at all, because its
 objects are already local. Perry does not beat it on bytes and never will; what it does
 is reach the same answer without the clone that put those objects there, and without
@@ -317,8 +326,44 @@ even as the absolute gap grows from 2.54 s to 2.87 s. Perry's advantage here is 
 avoided, not round trips saved.
 
 What this does not show is a real agent finishing a real task sooner. The edit is
-scripted, it is one agent, and no model is in the loop. That benchmark does not exist
-yet.
+scripted, it is one agent, and no model is in the loop. That measurement is next, and
+it does not go Perry's way.
+
+### A real agent, with a model in the loop
+
+The same task, the same model, once with only Perry's MCP tools and once with a shell
+and an optimised checkout. `claude-sonnet-5-5` pinned on both sides, grpc-go, three
+trials per cell, all 18 runs completed the task and completion is verified by reading
+the edit back off the server.
+
+| Arm | RTT | Setup | Agent | Total | Turns | Output tokens | Cost | Wire |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| perry (MCP) | 0 ms | 0 ms | 74.9 s | **77.6 s** | 6 | 15,040 | $0.33 | 63.5 KB |
+| git shallow | 0 ms | 4.7 s | 16.5 s | **23.6 s** | 4 | 585 | $0.07 | 3.39 MB |
+| git sparse, told the dir | 0 ms | 2.3 s | 15.9 s | **20.6 s** | 4 | 727 | $0.08 | 769 KB |
+| perry (MCP) | 75 ms | 0 ms | 75.8 s | **78.2 s** | 6 | 15,070 | $0.33 | 63.8 KB |
+| git shallow | 75 ms | 5.0 s | 19.4 s | **27.0 s** | 4 | 565 | $0.07 | 3.39 MB |
+| git sparse, told the dir | 75 ms | 2.8 s | 14.5 s | **19.6 s** | 4 | 623 | $0.07 | 769 KB |
+
+**Perry loses by three to four times.** It moves 53 times fewer bytes and takes three
+to four times longer, at 4.6 times the cost, and the three trials agree within 1.8 s.
+
+The cause is a design decision in Perry, not a measurement artefact. The agent had to
+rewrite a 733-line file, and `perry_commit` — like `POST /commit` underneath it — takes
+each file's **complete new contents**. So the model re-emitted the whole file: 15,040
+output tokens against 585 for the git arm, which used an edit tool and sent a few lines.
+Both arms carry about 15 s of fixed overhead; Perry's extra 59 s is the model typing out
+a file it had just been shown, at about 245 tokens per second.
+
+Perry's real wins survive and are worth naming: setup is free, 0 ms against 2.3 to 5.0 s,
+and latency barely touches it — going from 0 ms to 75 ms RTT costs Perry 0.6 s and costs
+the shallow clone 3.4 s. Neither is worth 57 s. An agent's wall clock is dominated by
+inference, and a transport that is 53 times leaner is invisible next to a tool design
+that makes the model generate twenty-five times more text.
+
+The gap scales with the size of the edited file, so a 50-line file would show much less
+of it, perhaps none. See [BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop)
+for the per-run detail and the confounds.
 
 ### Contention
 
