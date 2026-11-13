@@ -57,6 +57,11 @@ stock client, so everything downstream of the repository keeps working.
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
 mirroring.
 
+**Its authentication is one shared token.** One token covers every repository and every
+route, sent in clear text over Basic auth unless you terminate TLS in front of it. There
+are no users, no per-repository scopes and no revocation. That is enough for a fleet of
+agents inside one trust boundary and not enough for anything else.
+
 **It does not serve shallow or partial clones.** `--depth` is refused and `--filter` is
 ignored, so a client that wants a checkout gets the whole history. An agent that needs
 a real working tree, to run a build or a test suite, pays more against perry than
@@ -73,13 +78,36 @@ go install github.com/perry-dev/perry/cmd/perry@latest
 perry serve -data ./data
 ```
 
-The server listens on `:8080`, keeps one SQLite file per repository under `-data`, and
-needs no other process. Pushing to a name that does not exist creates it:
+The server listens on `127.0.0.1:8080`, keeps one SQLite file per repository under
+`-data`, and needs no other process. Pushing to a name that does not exist creates it:
 
 ```bash
 git remote add perry http://localhost:8080/app.git
 git push perry main
 ```
+
+### Exposing it to a network
+
+Git smart HTTP carries `receive-pack`, so a perry server without a token accepts
+anonymous **pushes** to any repository, and creates repositories on demand. Set a token
+before binding anything but loopback; perry refuses to start otherwise.
+
+```bash
+perry serve -addr 0.0.0.0:8080 -token "$PERRY_TOKEN"
+```
+
+The token is required on every route — git and API alike — as either an
+`Authorization: Bearer` header or the password in HTTP Basic auth. Git cannot send a
+bearer token, so it uses Basic; the username is ignored:
+
+```bash
+git clone http://x:"$PERRY_TOKEN"@host:8080/app.git
+curl -H "Authorization: Bearer $PERRY_TOKEN" http://host:8080/v1/repos/app/refs
+```
+
+`/healthz` stays open so a liveness probe needs no credential. There is one token for
+the whole server: no per-repository access, no per-user identity, no revocation. Put it
+behind TLS, because Basic auth sends the token in clear text.
 
 Or build from source:
 

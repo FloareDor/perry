@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,13 +31,21 @@ Usage:
   perry version
 
 Serve flags:
-  -addr   string  listen address (default ":8080")
-  -data   string  directory holding repository databases (default "./data")
-  -token  string  bearer token required on the read API (default none)
+  -addr      string  listen address (default "127.0.0.1:8080")
+  -data      string  directory holding repository databases (default "./data")
+  -token     string  required on every route, as a bearer token or as the
+                     password in HTTP Basic auth (default none)
+  -insecure  bool    serve a non-loopback address without a token
+
+Git smart HTTP carries receive-pack, so a perry server without -token accepts
+anonymous pushes to any repository. The default address is loopback, and
+serving a public address without a token is refused unless -insecure is given.
 
 Examples:
-  perry serve -data ./data -addr :8080
+  perry serve -data ./data
+  perry serve -addr 0.0.0.0:8080 -token "$PERRY_TOKEN"
   git clone http://localhost:8080/demo.git
+  git clone http://x:"$PERRY_TOKEN"@host:8080/demo.git
   curl 'http://localhost:8080/v1/repos/demo/grep?q=func+main'
   curl 'http://localhost:8080/v1/repos/demo/file?ref=main&path=README.md'
 `
@@ -132,27 +141,50 @@ func sanitizeRepoName(name string) string {
 
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", ":8080", "listen address")
+	// Loopback by default. A perry server with no token accepts anonymous
+	// pushes to any repository and creates repositories on demand, so binding
+	// every interface by default would make "perry serve" on a reachable host
+	// world-writable. Exposing it is a deliberate act: pass an explicit
+	// address, and a token to go with it.
+	addr := fs.String("addr", "127.0.0.1:8080", "listen address")
 	dir := fs.String("data", "./data", "directory holding repository databases")
-	token := fs.String("token", "", "bearer token required on the read API")
+	token := fs.String("token", "", "token required on every route, as a bearer token or as the password in HTTP Basic auth")
+	insecure := fs.Bool("insecure", false, "serve a non-loopback address without a token (do not use on a public network)")
 	_ = fs.Parse(args)
+
+	if *token == "" && !isLoopback(*addr) && !*insecure {
+		log.Fatalf("refusing to serve %s without -token: git smart HTTP carries receive-pack, "+
+			"so an unauthenticated perry accepts anonymous pushes to any repository and "+
+			"creates repositories on demand.\n"+
+			"  set a token:        perry serve -addr %s -token $PERRY_TOKEN\n"+
+			"  or keep it local:   perry serve\n"+
+			"  or accept the risk: perry serve -addr %s -insecure",
+			*addr, *addr, *addr)
+	}
 
 	mgr := newRepoManager(*dir)
 	defer mgr.closeAll()
 
 	gitSrv := server.New(mgr.open)
-	readAPI := &api.Handler{Open: mgr.open, Token: *token}
+	// The token is enforced by the middleware below, which covers the git
+	// routes too, so the API handler does not check it a second time.
+	readAPI := &api.Handler{Open: mgr.open}
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/repos/", readAPI)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.Handle("/", gitSrv)
+
+	// Health checks stay open: a liveness probe should not need a credential,
+	// and it reveals nothing but that the process is up.
+	outer := http.NewServeMux()
+	outer.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok\n"))
 	})
-	mux.Handle("/", gitSrv)
+	outer.Handle("/", api.RequireToken(mux, *token))
 
 	srv := &http.Server{
 		Addr:    *addr,
-		Handler: logRequests(mux),
+		Handler: logRequests(outer),
 		// A clone of a large repository legitimately takes a long time, so
 		// the write timeout is generous. The read header timeout stays
 		// short, since a client that cannot send headers promptly is not
@@ -163,7 +195,10 @@ func serve(args []string) {
 	}
 
 	log.Printf("perry listening on %s, data in %s", *addr, *dir)
-	log.Printf("  git clone http://localhost%s/demo.git", *addr)
+	if *token == "" {
+		log.Printf("  no -token set: every route is open to anyone who can reach this address")
+	}
+	log.Printf("  git clone http://%s/demo.git", *addr)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
@@ -250,4 +285,22 @@ func refs(args []string) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(out)
+}
+
+// isLoopback reports whether a listen address is reachable only from this
+// machine. An empty host means every interface, which is not loopback however
+// the port is written.
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	switch host {
+	case "localhost":
+		return true
+	case "", "0.0.0.0", "::", "[::]":
+		return false
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }

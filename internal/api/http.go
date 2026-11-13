@@ -19,15 +19,9 @@ type Handler struct {
 
 // ServeHTTP routes the read endpoints.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.Token != "" {
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		// A plain comparison is fine here because the token is compared in
-		// full and the endpoint is not a login oracle, but constant time
-		// costs nothing and removes the question.
-		if subtleCompare(got, h.Token) == false {
-			writeError(w, http.StatusUnauthorized, "bad or missing bearer token")
-			return
-		}
+	if h.Token != "" && !tokenOK(r, h.Token) {
+		writeError(w, http.StatusUnauthorized, "bad or missing bearer token")
+		return
 	}
 
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/repos/")
@@ -231,6 +225,52 @@ func writeErr(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusBadRequest, err.Error())
+}
+
+// tokenOK reports whether a request carries the expected token.
+//
+// Two forms are accepted. `Authorization: Bearer <token>` is what an agent or
+// a script sends. HTTP Basic auth with the token as the password is what git
+// sends, because git's smart HTTP client has no way to present a bearer token
+// but does speak Basic through the standard credential helpers. The username
+// is ignored, which is how token authentication over Basic is conventionally
+// done.
+func tokenOK(r *http.Request, want string) bool {
+	if got := r.Header.Get("Authorization"); strings.HasPrefix(got, "Bearer ") {
+		return subtleCompare(strings.TrimPrefix(got, "Bearer "), want)
+	}
+	if _, pass, ok := r.BasicAuth(); ok {
+		return subtleCompare(pass, want)
+	}
+	return false
+}
+
+// RequireToken wraps a handler so that every request must carry the token.
+//
+// This exists because mounting an authenticated API next to an unauthenticated
+// handler is a trap: perry's git routes serve receive-pack as well as
+// upload-pack, so a git handler reachable without a token is writable without
+// a token, and a server started with -token looks protected while accepting
+// anonymous pushes. Authentication therefore wraps the whole mux rather than
+// one route.
+//
+// An empty token disables the check and returns the handler unchanged, which
+// is the single-user local default.
+func RequireToken(next http.Handler, token string) http.Handler {
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !tokenOK(r, token) {
+			// Git needs the challenge before it will consult a credential
+			// helper; without it a clone fails instead of asking for a
+			// password.
+			w.Header().Set("WWW-Authenticate", `Basic realm="perry"`)
+			writeError(w, http.StatusUnauthorized, "bad or missing credentials")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // subtleCompare compares two strings without leaking their common prefix
