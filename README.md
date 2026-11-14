@@ -30,13 +30,12 @@ shallow clone is cheaper.
 ## Install
 
 ```bash
-go install github.com/FloareDor/perry/cmd/perry@main
+go install github.com/FloareDor/perry/cmd/perry@latest
 perry serve -data ./data
 ```
 
-`@main` rather than `@latest`, because the v0.1.0 tag predates the module path this
-repository now uses. One SQLite file per repository under `-data`, no other process.
-Pushing to a name that does not exist creates it:
+One SQLite file per repository under `-data`, no other process. Pushing to a name that
+does not exist creates it:
 
 ```bash
 git remote add perry http://localhost:8080/app.git
