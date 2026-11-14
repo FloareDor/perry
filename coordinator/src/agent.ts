@@ -74,6 +74,10 @@ export const claudeAgent: Agent = async (task, repo, branch) => {
     paths.map(async (p) => ({ path: p, content: await repo.readFile(p, branch) })),
   );
 
+  // The model is asked for edits, not for whole files. Re-emitting a file
+  // it has just been shown is the dominant cost of this step: measured on a
+  // 733-line file, a whole-file reply cost 15,040 output tokens against 585
+  // for the same change expressed as a replacement.
   const prompt = [
     `Task: ${task.prompt}`,
     "",
@@ -81,8 +85,10 @@ export const claudeAgent: Agent = async (task, repo, branch) => {
     ...files.map((f) => `--- ${f.path} ---\n${f.content}`),
     "",
     "Reply with a JSON object only, no prose and no code fence:",
-    `{"summary": "<one line>", "changes": [{"path": "<path>", "content": "<full new file contents>"}]}`,
-    "Include the complete new contents of every file you change.",
+    `{"summary": "<one line>", "changes": [{"path": "<path>", "edits": [{"old": "<exact text>", "new": "<replacement>"}]}]}`,
+    "Do not send whole files. Express each change as replacements.",
+    "Copy `old` from the file above character for character, including indentation,",
+    "and include enough surrounding lines that it appears exactly once in that file.",
   ].join("\n");
 
   let output = "";

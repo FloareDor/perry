@@ -217,8 +217,13 @@ func Tools(c *Client) []Tool {
 		{
 			Name: "perry_commit",
 			Description: "Commit edited files straight to a branch, with no working tree, " +
-				"no staging area and no push. Each change carries the file's complete " +
-				"new contents, not a diff. Pass expect with the commit the branch " +
+				"no staging area and no push. " +
+				"Prefer edits: each one replaces an exact run of text in the file, " +
+				"the way a normal editing tool does, so changing one line of a large " +
+				"file costs one line. Send content instead only for a new file or a " +
+				"deliberate rewrite of the whole thing; re-emitting a file you have " +
+				"just read is slow and error-prone. " +
+				"Pass expect with the commit the branch " +
 				"currently points at (from perry_list_branches) so a concurrent writer " +
 				"cannot be overwritten: a mismatch is rejected rather than merged.",
 			InputSchema: object(map[string]any{
@@ -228,10 +233,25 @@ func Tools(c *Client) []Tool {
 					"type":        "array",
 					"description": "The files to write or delete.",
 					"items": object(map[string]any{
-						"path":    prop("string", "Repository-relative path."),
-						"content": prop("string", "The file's complete new contents. Omit when deleting."),
-						"delete":  prop("boolean", "Remove this path instead of writing it."),
-						"mode":    prop("string", "File mode, e.g. 100755 for an executable. Defaults to 100644."),
+						"path": prop("string", "Repository-relative path."),
+						"edits": map[string]any{
+							"type": "array",
+							"description": "Replacements to make in the file that is already there. " +
+								"Preferred over content for any change to an existing file. " +
+								"They apply in order, each to the result of the last.",
+							"items": object(map[string]any{
+								"old": prop("string", "The exact text to replace, copied character for "+
+									"character from perry_read_file, including indentation. "+
+									"It must appear exactly once, so include enough "+
+									"surrounding lines to make it unique."),
+								"new": prop("string", "What replaces it. Empty deletes the matched text."),
+								"all": prop("boolean", "Replace every occurrence instead of requiring a unique one."),
+							}, "old", "new"),
+						},
+						"content": prop("string", "The file's complete new contents. For a new file or a "+
+							"full rewrite; use edits to change an existing file. Omit when deleting."),
+						"delete": prop("boolean", "Remove this path instead of writing it."),
+						"mode":   prop("string", "File mode, e.g. 100755 for an executable. Defaults to 100644."),
 					}, "path"),
 				},
 				"author": prop("string", "Author name. Defaults to the adapter's -author flag."),
@@ -246,10 +266,19 @@ func Tools(c *Client) []Tool {
 					Email   string `json:"email"`
 					Expect  string `json:"expect"`
 					Changes []struct {
-						Path    string `json:"path"`
-						Content string `json:"content"`
-						Delete  bool   `json:"delete"`
-						Mode    string `json:"mode"`
+						Path string `json:"path"`
+						// Content is a pointer so an omitted field stays
+						// distinguishable from an empty string: one means "this
+						// change is made by edits", the other means "truncate
+						// this file to nothing".
+						Content *string `json:"content"`
+						Delete  bool    `json:"delete"`
+						Mode    string  `json:"mode"`
+						Edits   []struct {
+							Old string `json:"old"`
+							New string `json:"new"`
+							All bool   `json:"all"`
+						} `json:"edits"`
 					} `json:"changes"`
 				}
 				if err := json.Unmarshal(raw, &a); err != nil {
@@ -274,12 +303,21 @@ func Tools(c *Client) []Tool {
 						return "", fmt.Errorf("every change needs a path")
 					}
 					chg := api.Change{Path: ch.Path, Delete: ch.Delete, Mode: ch.Mode}
-					if !ch.Delete {
-						// A deletion leaves Content nil on purpose: perry
-						// distinguishes "write an empty file" from "remove
-						// this path" by nil versus empty, so an empty string
-						// here must still produce a non-nil slice.
-						chg.Content = []byte(ch.Content)
+					for _, e := range ch.Edits {
+						chg.Edits = append(chg.Edits, api.Edit{Old: e.Old, New: e.New, All: e.All})
+					}
+					switch {
+					case ch.Delete || len(chg.Edits) > 0:
+						// Both leave Content nil: a deletion because perry
+						// distinguishes "write an empty file" from "remove this
+						// path" by nil versus empty, and an edit because the
+						// server reads the current contents itself.
+					case ch.Content == nil:
+						return "", fmt.Errorf("%s needs content, edits, or delete", ch.Path)
+					default:
+						// An empty string still has to reach perry as a non-nil
+						// slice, or it would read as a deletion.
+						chg.Content = []byte(*ch.Content)
 						if chg.Content == nil {
 							chg.Content = []byte{}
 						}
