@@ -196,39 +196,50 @@ perry lost it and the loss is why the second run reads the way it does.
 
 | Arm | RTT | Setup | Agent | **Total** | Turns | Output tokens | Cost | Wire | Reqs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| perry (MCP) | 0 ms | 0 ms | 14.2 s | **16.8 s** | 6 | 1,078 | $0.134 | 28.1 KB | 4 |
-| git shallow | 0 ms | 4.7 s | 16.6 s | **23.8 s** | 4 | 551 | $0.071 | 3.39 MB | 5 |
-| git sparse, told the dir | 0 ms | 2.3 s | 14.9 s | **20.0 s** | 4 | 628 | $0.073 | 769 KB | 9 |
-| perry (MCP) | 75 ms | 0 ms | 15.7 s | **18.0 s** | 6 | 1,191 | $0.135 | 28.4 KB | 4 |
-| git shallow | 75 ms | 4.9 s | 15.7 s | **23.1 s** | 4 | 586 | $0.071 | 3.39 MB | 5 |
-| git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | **20.2 s** | 4 | 614 | $0.072 | 769 KB | 9 |
+| perry (MCP) | 0 ms | 0 ms | 16.6 s | **19.0 s** | 6 | 1,223 | $0.092 | **1.6 KB** | 4 |
+| git shallow | 0 ms | 4.7 s | 17.3 s | **24.2 s** | 4 | 596 | $0.071 | 3.39 MB | 5 |
+| git sparse, told the dir | 0 ms | 2.3 s | 14.5 s | **19.1 s** | 4 | 679 | $0.072 | 769 KB | 9 |
+| perry (MCP) | 75 ms | 0 ms | 15.2 s | **17.7 s** | 6 | 1,200 | $0.087 | **1.5 KB** | 4 |
+| git shallow | 75 ms | 4.9 s | 16.1 s | **23.3 s** | 4 | 575 | $0.071 | 3.39 MB | 5 |
+| git sparse, told the dir | 75 ms | 2.8 s | 14.3 s | **19.5 s** | 4 | 654 | $0.072 | 769 KB | 9 |
 
-On this task, perry finishes 1.2 to 1.4 times sooner, moving 27 to 121 times
-fewer bytes, and costs 1.9 times as much. One task at three trials per cell
-establishes that the ordering can go perry's way, not that it generally does.
+Read against the two git paths separately, because they say different things.
+
+Against the **shallow clone**, perry finishes 1.27 to 1.32 times sooner and
+moves 2,100 times fewer bytes, at 1.24 to 1.30 times the cost.
+
+Against the **sparse checkout** -- which is told which directory to look in,
+and so is git on ground it would not have in practice -- perry is a dead heat
+at 0 ms, 19.0 s against 19.1 s, and 1.10 times faster at 75 ms. The honest
+summary of this task is that perry beats a realistic git setup comfortably and
+ties git's best case, while moving 480 times fewer bytes than that best case.
+
+One task at three trials per cell establishes that the ordering can go perry's
+way, not that it generally does. The [twenty-task suite](#twenty-tasks-not-one)
+is the wider measurement.
 
 Every run, because an LLM's wall clock is not repeatable:
 
 | Arm | RTT | # | Setup | Agent | Total | Turns | Out tok | Cost | Wire |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| perry | 0 ms | 1 | 0 ms | 14.04 s | 16.70 s | 6 | 1,100 | $0.1396 | 28.0 KB |
-| perry | 0 ms | 2 | 0 ms | 14.21 s | 16.83 s | 6 | 1,078 | $0.1327 | 28.1 KB |
-| perry | 0 ms | 3 | 0 ms | 14.81 s | 17.18 s | 6 | 1,125 | $0.1335 | 28.2 KB |
-| shallow | 0 ms | 1 | 4.70 s | 17.43 s | 24.79 s | 4 | 598 | $0.0712 | 3.39 MB |
-| shallow | 0 ms | 2 | 4.66 s | 16.63 s | 23.78 s | 4 | 551 | $0.0706 | 3.39 MB |
-| shallow | 0 ms | 3 | 4.53 s | 16.19 s | 23.15 s | 4 | 609 | $0.0710 | 3.39 MB |
-| sparse | 0 ms | 1 | 2.65 s | 14.95 s | 20.02 s | 4 | 733 | $0.0728 | 769 KB |
-| sparse | 0 ms | 2 | 2.28 s | 14.31 s | 19.11 s | 4 | 628 | $0.0715 | 769 KB |
-| sparse | 0 ms | 3 | 2.21 s | 16.45 s | 21.02 s | 5 | 765 | $0.0775 | 769 KB |
-| perry | 75 ms | 1 | 0 ms | 15.73 s | 18.01 s | 6 | 1,191 | $0.1344 | 28.3 KB |
-| perry | 75 ms | 2 | 0 ms | 15.22 s | 17.70 s | 6 | 1,204 | $0.1349 | 28.4 KB |
-| perry | 75 ms | 3 | 0 ms | 15.78 s | 18.24 s | 6 | 1,217 | $0.1352 | 28.5 KB |
-| shallow | 75 ms | 1 | 4.91 s | 15.68 s | 23.06 s | 4 | 586 | $0.0708 | 3.39 MB |
-| shallow | 75 ms | 2 | 4.87 s | 15.03 s | 22.25 s | 4 | 577 | $0.0707 | 3.39 MB |
-| shallow | 75 ms | 3 | 4.91 s | 16.79 s | 23.96 s | 4 | 540 | $0.0702 | 3.39 MB |
-| sparse | 75 ms | 1 | 2.89 s | 14.73 s | 20.05 s | 4 | 614 | $0.0714 | 769 KB |
-| sparse | 75 ms | 2 | 2.83 s | 16.81 s | 22.01 s | 5 | 733 | $0.0772 | 769 KB |
-| sparse | 75 ms | 3 | 2.80 s | 15.00 s | 20.18 s | 4 | 655 | $0.0717 | 769 KB |
+| perry | 0 ms | 1 | 0 ms | 17.69 s | 20.31 s | 6 | 1,300 | $0.0929 | 1.6 KB |
+| perry | 0 ms | 2 | 0 ms | 16.58 s | 19.02 s | 6 | 1,223 | $0.0919 | 1.6 KB |
+| perry | 0 ms | 3 | 0 ms | 16.44 s | 18.96 s | 6 | 1,195 | $0.0914 | 1.5 KB |
+| shallow | 0 ms | 1 | 4.65 s | 15.63 s | 22.73 s | 4 | 571 | $0.0706 | 3.39 MB |
+| shallow | 0 ms | 2 | 4.58 s | 17.26 s | 24.16 s | 4 | 596 | $0.0707 | 3.39 MB |
+| shallow | 0 ms | 3 | 4.66 s | 18.03 s | 25.43 s | 5 | 727 | $0.0811 | 3.39 MB |
+| sparse | 0 ms | 1 | 2.32 s | 14.47 s | 19.34 s | 4 | 655 | $0.0721 | 769 KB |
+| sparse | 0 ms | 2 | 2.31 s | 14.21 s | 19.01 s | 4 | 687 | $0.0723 | 769 KB |
+| sparse | 0 ms | 3 | 2.18 s | 14.51 s | 19.09 s | 4 | 679 | $0.0723 | 769 KB |
+| perry | 75 ms | 1 | 0 ms | 17.68 s | 20.04 s | 7 | 1,419 | $0.0952 | 1.6 KB |
+| perry | 75 ms | 2 | 0 ms | 15.18 s | 17.67 s | 6 | 1,200 | $0.0874 | 1.5 KB |
+| perry | 75 ms | 3 | 0 ms | 14.52 s | 16.90 s | 5 | 1,134 | $0.0861 | 1.4 KB |
+| shallow | 75 ms | 1 | 4.87 s | 20.25 s | 27.45 s | 5 | 770 | $0.0810 | 3.39 MB |
+| shallow | 75 ms | 2 | 4.86 s | 16.06 s | 23.31 s | 4 | 575 | $0.0704 | 3.39 MB |
+| shallow | 75 ms | 3 | 5.00 s | 15.55 s | 23.05 s | 4 | 599 | $0.0707 | 3.39 MB |
+| sparse | 75 ms | 1 | 2.71 s | 14.43 s | 19.60 s | 4 | 622 | $0.0713 | 769 KB |
+| sparse | 75 ms | 2 | 2.76 s | 14.30 s | 19.49 s | 4 | 654 | $0.0717 | 769 KB |
+| sparse | 75 ms | 3 | 2.79 s | 14.12 s | 19.14 s | 4 | 640 | $0.0719 | 769 KB |
 
 ### The first run, which perry lost
 
@@ -274,22 +285,79 @@ Nothing else changed between the two runs -- same prompts, same corpus, same
 model, same harness, same machine. Output tokens fell from 15,040 to 1,078 and
 the arm that was 54 s behind came out 7 s ahead.
 
+### Chasing the cost gap: three changes, one that worked
+
+Perry won on wall clock and lost on cost, 1.9 times git's. The obvious
+explanation was turns -- six against git's four, each one re-reading the whole
+prompt prefix -- so the obvious fix was to need fewer of them. Three changes
+were measured separately, three trials each, at 0 ms RTT, on grpc-go.
+
+| | Turns | Requests | Cost | Wire | Total |
+|---|---:|---:|---:|---:|---:|
+| baseline | 6 | 4 | $0.1338 | 28.1 KB | 17.8 s |
+| A: identical prompts | 6 | 4 | $0.1338 | 28.1 KB | 17.8 s |
+| B: fewer round trips | 5 | 3 | $0.1346 | 29.8 KB | 16.9 s |
+| C: ranged reads | 6 | 4 | **$0.0924** | **1.5 KB** | 19.6 s |
+| *git shallow, for scale* | *4* | *5* | *$0.0706* | *3.39 MB* | *23.4 s* |
+
+**A fixed a confound in the harness, and changed nothing.** The two arms were
+not being told the same thing: perry's prompt said "1. Find the file. 2. Read
+that file. 3. Append... 4. Commit", and git's said "1. Find the file.
+2. Append... 3. Commit". Perry's arm had been handed an extra step for two
+full runs without anyone noticing. Removing it moved neither the turn count nor
+the cost, because the model read the file either way -- it needed to. The
+confound was real and worth removing; it was not the cause of anything.
+
+**B did what it was supposed to and still did not help.** `perry_grep` now
+reports the commit it searched, which removes the `perry_list_branches` call
+that existed only to learn a tip the search already knew, and it can return the
+matched files whole, which removes the `perry_read_file` call. Requests fell
+from four to three and turns from six to five, exactly as intended. Cost did
+not move. Returning the file whole put all 733 lines into the context one turn
+earlier instead of one turn later, and the saved turn was worth about as much
+as the extra context cost.
+
+**C was the one.** `perry_read_file` could only return a whole file, up to
+400,000 characters of it. The git arm could run `tail`. That asymmetry, not the
+turn count, was the cost: an agent appending one line was reading 27 KB to find
+out what the last line was. Giving the tool a line range -- `start_line` and
+`end_line`, with a negative start counting back from the end -- cut cost by 31%
+and the bytes on the wire by 95%, to 1.5 KB for the whole task. It costs about
+two seconds of wall clock, because the model now makes a small read it used to
+fold into a big one.
+
+The lesson is not about perry. Turns were the visible difference and the wrong
+thing to optimise; what mattered was how much of the repository ends up in the
+model's context, which is the one resource an agent actually spends. A tool
+that cannot return part of a file forces the whole file into context, and no
+amount of combining calls fixes that.
+
+Perry still costs 1.31 times git here, down from 1.9. What is left is the seven
+tool schemas in a prefix re-read every turn, and two more turns than git takes.
+
 ### What perry wins, and what it still loses
 
 Wins, in order of how much they mattered:
 
-- **Setup is free.** 0 ms against 2.3 to 4.9 s, in every run.
-- **Latency barely touches it.** 0 ms to 75 ms of RTT costs perry 1.2 s and the
-  shallow clone 3.4 s, because perry makes four requests against git's five to
-  nine.
-- **Bytes.** 28 KB against 3.39 MB. Real, and the thing that mattered least
-  here; it is a fleet and bad-link argument, not a wall-clock one.
+- **Setup is free.** 0 ms against 2.2 to 5.0 s, in every run. This is the
+  whole of perry's margin against the shallow clone, and it is the one
+  advantage that cannot be competed away by a cleverer clone: there is
+  nothing to download.
+- **Bytes.** 1.5 KB against 3.39 MB, once the agent could read a line range
+  instead of a whole file. That is 2,100 times less. It is also the thing
+  that mattered least to the clock; it is a fleet and bad-link argument, not
+  a wall-clock one.
+- **Latency is cheap but not free.** Perry makes four requests against git's
+  five to nine, so 75 ms of RTT moves it less than it moves a clone. At one
+  trial per cell this benchmark cannot separate that from noise, and the
+  earlier claim that it cost perry 1.2 s against the clone's 3.4 s was
+  reading more into three runs than three runs support.
 
-It still loses on cost: $0.134 against $0.071. Output tokens are now close,
-1,078 against 551, so the gap is prompt rather than generation. Perry's arm
-takes 6 turns to git's 4 and carries seven tool schemas in a prefix re-read
-every turn: 215k cached input tokens against 154k, and 25k of cache writes
-against 12k. Perry buys wall clock and bandwidth with context.
+It still loses on cost: $0.092 against $0.071, down from 1.9 times to 1.30.
+Output tokens are close, 1,223 against 596, so what is left is prompt rather
+than generation: perry's arm takes six turns to git's four and carries seven
+tool schemas in a prefix re-read on every one of them. Perry buys wall clock
+and bandwidth with context, at a better rate than it used to.
 
 ### What this still does not show
 
@@ -308,6 +376,94 @@ against 12k. Perry buys wall clock and bandwidth with context.
 - The edit here is an append, so the `old` anchor is the end of the file. A
   change in the middle of a dense file is the case where an exact anchor is
   hardest to make unique, and it is not measured.
+
+## Twenty tasks, not one
+
+Everything above turns on a single task: append one line to the end of one
+file. That is the easiest edit there is -- no anchor to find, nothing
+ambiguous, nothing to understand first -- and a result that rests on it says
+less than it appears to.
+
+So: ten task shapes across both corpora, one trial each, at 0 ms RTT. Each is
+posed to all three arms in identical words, and checked by reading the finished
+repository back through a path the agent did not write through. Several have an
+answer the harness computes from the repository before the agent ever sees it
+-- a package name, a file's length, how many files match -- so that "the marker
+is present" cannot pass a task the agent only half did.
+
+| Task | What it exercises |
+|---|---|
+| `append-end` | append a line to the end of a located file |
+| `insert-above` | insert a line immediately above a located line |
+| `two-files` | edit a located file and a named one in one commit |
+| `read-then-answer` | report the package a located file declares |
+| `count-matches` | report how many files contain a string |
+| `length-branch` | choose between two answers by reading the file |
+| `two-commits` | two commits in sequence, the second on top of the first |
+| `new-file` | create a file that does not exist, in a new directory |
+| `replace-all` | replace every occurrence of a string in one file |
+| `top-and-bottom` | two edits to one file, at both ends |
+
+### Completion first
+
+| Arm | Finished | Median | Cost/task | Output tokens | Wire/task |
+|---|---:|---:|---:|---:|---:|
+| **perry (MCP)** | **20/20** | **18.3 s** | $0.0954 | 1,396 | **2.4 KB** |
+| git shallow | 20/20 | 22.5 s | **$0.0804** | 760 | 1.81 MB |
+| git sparse, told the dir | 19/20 | 21.1 s | $0.0844 | 905 | 596 KB |
+
+Completion is the headline because a tool surface that is quick and gets the
+task wrong is worth less than a slow one that does not. Two arms finished
+everything. Perry is 1.15 times faster than the best git arm on the median
+task, moves 248 to 754 times fewer bytes, and costs 1.19 times as much -- a
+narrower cost gap than the single task showed, because several of these tasks
+need more reading and perry's reads are ranged.
+
+### The one failure is the interesting row
+
+`git sparse` got `count-matches` wrong on cobra: it answered 2 where the
+repository has 3. It was not careless. A sparse checkout has only one
+directory on disk, so the third matching file was not there to count. The arm
+that downloads less cannot answer a question about what it did not download,
+and nothing in its output marks the answer as partial.
+
+This is the sparse arm's advantage and its cost in the same number. Perry
+searches server-side, so a repository-wide question costs it one request
+whether the answer is in the checkout or not -- there is no checkout.
+
+### The margin tracks repository size
+
+| Corpus | perry | git shallow | git sparse |
+|---|---:|---:|---:|
+| cobra, 1.6 MB packed | 18.2 s | 19.5 s | 21.2 s |
+| grpc-go, 45.9 MB packed | 19.2 s | 25.5 s | 20.9 s |
+
+On cobra perry and the shallow clone are within a second and a half of each
+other, which is noise at one trial. On grpc-go the shallow clone is six
+seconds behind. That is the shape to expect: perry's setup advantage is a
+constant zero, and what it is being compared against grows with the
+repository. On a small repository there is not much to save.
+
+Perry is fastest in 6 of 10 tasks on each corpus, so the median hides real
+spread. `new-file` on cobra went to the shallow clone by 4.5 seconds, and
+`replace-all` went to the sparse checkout on both corpora.
+
+### What this still does not show
+
+- One trial per task. The completion column is solid at this sample -- a task
+  either got done or did not -- but every timing here carries a single run's
+  variance, and the per-task differences under about three seconds mean
+  nothing.
+- Two repositories, both Go, both libraries. Nothing here says what happens in
+  a monorepo, or in a language whose files are much larger.
+- Ten task shapes chosen by the author of the thing being measured. They were
+  written to cover edit shapes that the single task did not, not to be won,
+  but no one else has checked that.
+- One model. The tool descriptions were written for a model to read, and a
+  different model may read them differently.
+- No task here needs a build or a test run. That is the case perry is worst
+  at: it does not serve shallow or partial clones, so an agent that needs a
+  real working tree pays more against perry than against GitHub.
 
 ## Same-ref contention
 
@@ -362,8 +518,13 @@ they collide less.
   writes, turned entirely on the edited file's size, and that was not varied;
   there is no reason to assume the second run does not turn on it too.
 - The real-agent comparison edits by appending, so the anchor an edit has to
-  match is the end of the file. Matching uniquely in the middle of a dense
-  file is the harder case and is not measured.
+  match is the end of the file. The twenty-task suite covers the harder
+  shapes, but at one trial each.
+- The twenty-task suite reports completion solidly and timings weakly: one
+  trial per task means any per-task difference under about three seconds is
+  noise. Its tasks were written by the author of the thing being measured.
+- No agent benchmark here requires a build or a test run, which is the case
+  perry is worst at.
 - The contention benchmark's HTTP runs are loopback. A remote agent would also
   pay network latency on each of the three requests per attempt, and a remote
   git agent would pay it per subprocess round trip too.

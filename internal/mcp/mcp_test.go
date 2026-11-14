@@ -686,3 +686,133 @@ func TestAChangeWithNothingToDoIsRefused(t *testing.T) {
 		t.Fatalf("a change with no content, edits or delete was accepted: %s", out)
 	}
 }
+
+// TestGrepReportsTheCommitSoCommitNeedsNoLookup is the turn the adapter used
+// to spend on perry_list_branches: the search already knows the version it
+// read, so the agent can pin its write to it.
+func TestGrepReportsTheCommitSoCommitNeedsNoLookup(t *testing.T) {
+	c, s := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	out, isErr := sess.tool("perry_grep", map[string]any{
+		"pattern": "connectTimeout",
+		"ref":     "main",
+	})
+	if isErr {
+		t.Fatalf("grep failed: %s", out)
+	}
+	tip, err := api.Resolve(context.Background(), s, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "at commit "+tip.String()) {
+		t.Fatalf("grep did not report the commit it searched:\n%s", out)
+	}
+}
+
+// Two calls, no read and no branch lookup: this is what the turn count was
+// spent on, and the test fails if the adapter stops making it possible.
+func TestFindAndEditTakesTwoCalls(t *testing.T) {
+	c, s := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	found, isErr := sess.tool("perry_grep", map[string]any{
+		"pattern":       "connectTimeout",
+		"ref":           "main",
+		"include_files": true,
+	})
+	if isErr {
+		t.Fatalf("grep failed: %s", found)
+	}
+	if !strings.Contains(found, "--- src/main.go ---") {
+		t.Fatalf("the matched file did not come back whole:\n%s", found)
+	}
+	// Verbatim, because the next call quotes it back as an edit's old text.
+	if !strings.Contains(found, "\tconnectTimeout := 30\n") {
+		t.Fatalf("the file body is not verbatim:\n%s", found)
+	}
+
+	tip, err := api.Resolve(context.Background(), s, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, isErr := sess.tool("perry_commit", map[string]any{
+		"branch":  "main",
+		"message": "raise the timeout",
+		"expect":  tip.String(),
+		"changes": []map[string]any{{
+			"path":  "src/main.go",
+			"edits": []map[string]any{{"old": "connectTimeout := 30", "new": "connectTimeout := 90"}},
+		}},
+	})
+	if isErr {
+		t.Fatalf("commit failed: %s", out)
+	}
+
+	got, err := api.ReadFile(context.Background(), s, "main", "src/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "connectTimeout := 90") {
+		t.Fatalf("the edit did not land: %q", got)
+	}
+}
+
+// Without the flag nothing changes, so an agent that only wants to look
+// around does not pay for file bodies it did not ask for.
+func TestGrepWithoutIncludeFilesStaysMatchesOnly(t *testing.T) {
+	c, _ := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	out, isErr := sess.tool("perry_grep", map[string]any{"pattern": "connectTimeout", "ref": "main"})
+	if isErr {
+		t.Fatalf("grep failed: %s", out)
+	}
+	if strings.Contains(out, "--- src/main.go ---") {
+		t.Fatalf("file bodies came back unasked:\n%s", out)
+	}
+	if strings.Contains(out, "returned in full") {
+		t.Fatalf("grep claimed to return files:\n%s", out)
+	}
+}
+
+// A model that only needs the end of a file must be able to ask for it, the
+// way a shell agent reaches for tail. Without this it pays for the whole
+// file in context on every edit.
+func TestReadFileTakesALineRange(t *testing.T) {
+	c, _ := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	whole, isErr := sess.tool("perry_read_file", map[string]any{"path": "src/main.go", "ref": "main"})
+	if isErr {
+		t.Fatalf("read failed: %s", whole)
+	}
+	if strings.Contains(whole, "lines]") {
+		t.Errorf("a whole-file read was annotated as partial:\n%s", whole)
+	}
+
+	tail, isErr := sess.tool("perry_read_file", map[string]any{
+		"path": "src/main.go", "ref": "main", "start_line": -2,
+	})
+	if isErr {
+		t.Fatalf("range read failed: %s", tail)
+	}
+	if len(tail) >= len(whole) {
+		t.Errorf("the tail is not shorter than the file:\n%s", tail)
+	}
+	// It has to say what it did not show, or the model will treat the
+	// fragment as the whole file and anchor an edit against its start.
+	if !strings.Contains(tail, "of src/main.go 6 lines]") {
+		t.Errorf("a partial read did not report the file's length:\n%s", tail)
+	}
+	if !strings.Contains(tail, "}") {
+		t.Errorf("the tail does not contain the end of the file:\n%s", tail)
+	}
+	if strings.Contains(tail, "package main") {
+		t.Errorf("the tail contains the start of the file:\n%s", tail)
+	}
+}

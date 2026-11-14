@@ -71,6 +71,7 @@ func (h *Handler) grep(w http.ResponseWriter, r *http.Request, s store.Store) {
 	}
 	opts.Context, _ = strconv.Atoi(r.URL.Query().Get("context"))
 	opts.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
+	opts.IncludeFiles = r.URL.Query().Get("files") == "true"
 
 	// A POST body may carry the same options, which keeps a long regex off
 	// the URL and out of request logs.
@@ -93,6 +94,7 @@ func (h *Handler) grep(w http.ResponseWriter, r *http.Request, s store.Store) {
 				opts.Limit = body.Limit
 			}
 			opts.CaseSensitive = opts.CaseSensitive || body.CaseSensitive
+			opts.IncludeFiles = opts.IncludeFiles || body.IncludeFiles
 		}
 	}
 
@@ -106,14 +108,19 @@ func (h *Handler) grep(w http.ResponseWriter, r *http.Request, s store.Store) {
 
 func (h *Handler) file(w http.ResponseWriter, r *http.Request, s store.Store) {
 	q := r.URL.Query()
-	data, err := ReadFile(r.Context(), s, q.Get("ref"), q.Get("path"))
+	start, _ := strconv.Atoi(q.Get("start"))
+	end, _ := strconv.Atoi(q.Get("end"))
+	data, total, err := ReadFileRange(r.Context(), s, q.Get("ref"), q.Get("path"), start, end)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	// Served as bytes rather than JSON so a large file streams without a
-	// base64 round trip, and so the client can diff it directly.
+	// base64 round trip, and so the client can diff it directly. The
+	// file's full length rides in a header, so a caller that asked for a
+	// range knows what it did not get.
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Perry-Lines", strconv.Itoa(total))
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Write(data)
 }

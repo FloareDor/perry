@@ -254,6 +254,14 @@ type GrepOptions struct {
 	Context       int // lines of context on each side
 	Limit         int // stop after this many matches, 0 means 1000
 	MaxFileSize   int64
+	// IncludeFiles returns the full contents of the matched files along
+	// with the matches, when few enough of them matched to be worth it.
+	//
+	// An agent that greps in order to edit what it finds otherwise spends
+	// a second round trip, and a second model turn, fetching a file the
+	// server already had in memory. The turn is the expensive half: the
+	// model re-reads its whole prompt prefix on every one.
+	IncludeFiles bool
 }
 
 // Match is one matching line.
@@ -265,13 +273,39 @@ type Match struct {
 	After  []string `json:"after,omitempty"`
 }
 
+// GrepFile is one matched file returned whole.
+type GrepFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 // GrepResult is a search response.
 type GrepResult struct {
 	Matches   []Match `json:"matches"`
 	Truncated bool    `json:"truncated"`
 	Scanned   int     `json:"filesScanned"`
 	Matched   int     `json:"filesMatched"`
+	// Skipped counts files passed over as binary or oversized. They are
+	// not failures and not truncation; the caller is told so it can see
+	// that the search covered less than the repository holds.
+	Skipped int `json:"filesSkipped,omitempty"`
+	// Commit is the commit the search ran against. A caller that edits
+	// what it found can send this back as a commit request's expect
+	// without looking the branch up again, and it is the version the
+	// matches actually came from rather than whatever the branch has
+	// moved to since.
+	Commit string `json:"commit,omitempty"`
+	// Files carries the matched files in full when IncludeFiles was set.
+	Files []GrepFile `json:"files,omitempty"`
 }
+
+// Limits on IncludeFiles. A search that matched half the repository must not
+// answer with half the repository: past a few files the agent is still
+// narrowing down, and the right next step is another search, not a download.
+const (
+	maxGrepFiles     = 3
+	maxGrepFileBytes = 256 << 10
+)
 
 // defaultMaxFileSize skips blobs too large to be source code. A repository
 // with a large binary in it should not turn every grep into a scan of it.
@@ -307,7 +341,15 @@ func Grep(ctx context.Context, s store.Store, opts GrepOptions) (*GrepResult, er
 		return nil, fmt.Errorf("api: bad pattern: %w", err)
 	}
 
-	treeID, err := CommitTree(ctx, s, opts.Rev)
+	// Resolve once and search by commit id. The result reports which
+	// commit it searched, so a caller that edits what it found can pin its
+	// write to that exact version; resolving the name twice would open a
+	// window where the two disagree.
+	commitID, err := Resolve(ctx, s, opts.Rev)
+	if err != nil {
+		return nil, err
+	}
+	treeID, err := CommitTree(ctx, s, commitID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +387,7 @@ func Grep(ctx context.Context, s store.Store, opts GrepOptions) (*GrepResult, er
 		matches []Match
 		scanned int
 		matched int
+		skipped int
 	}
 	shards := make([]shard, workers)
 
@@ -396,6 +439,7 @@ func Grep(ctx context.Context, s store.Store, opts GrepOptions) (*GrepResult, er
 					return
 				}
 				if obj.Size() > opts.MaxFileSize || isBinary(obj.Payload) {
+					sh.skipped++
 					continue
 				}
 				sh.scanned++
@@ -435,11 +479,12 @@ func Grep(ctx context.Context, s store.Store, opts GrepOptions) (*GrepResult, er
 	default:
 	}
 
-	result := &GrepResult{Matches: []Match{}}
+	result := &GrepResult{Matches: []Match{}, Commit: commitID.String()}
 	for i := range shards {
 		result.Matches = append(result.Matches, shards[i].matches...)
 		result.Scanned += shards[i].scanned
 		result.Matched += shards[i].matched
+		result.Skipped += shards[i].skipped
 	}
 	sort.Slice(result.Matches, func(i, j int) bool {
 		if result.Matches[i].Path != result.Matches[j].Path {
@@ -447,14 +492,59 @@ func Grep(ctx context.Context, s store.Store, opts GrepOptions) (*GrepResult, er
 		}
 		return result.Matches[i].Line < result.Matches[j].Line
 	})
-	if result.Scanned < len(files) {
+	// Truncated means "there is more to find", not "some files were not
+	// text". Deriving it from the scanned count made every repository with
+	// a binary in it report a truncated search, which tells an agent to
+	// narrow a search that was already exhaustive.
+	if atomic.LoadInt64(&found) >= stopAfter {
 		result.Truncated = true
 	}
 	if len(result.Matches) > opts.Limit {
 		result.Matches = result.Matches[:opts.Limit]
 		result.Truncated = true
 	}
+
+	if opts.IncludeFiles {
+		blobs := make(map[string]object.ID, len(files))
+		for _, f := range files {
+			blobs[f.path] = f.blob
+		}
+		if err := attachFiles(ctx, s, result, blobs); err != nil {
+			return nil, err
+		}
+	}
 	return result, nil
+}
+
+// attachFiles adds the matched files in full, in the order they first
+// appear in the matches, and stops at the limits rather than truncating a
+// file. Half a source file is worse than none: the agent cannot tell which
+// half it has, and an edit anchored in the missing part fails for a reason
+// that looks like the file changed underneath it.
+func attachFiles(ctx context.Context, s store.Store, res *GrepResult, blobs map[string]object.ID) error {
+	seen := map[string]bool{}
+	for _, m := range res.Matches {
+		if seen[m.Path] {
+			continue
+		}
+		seen[m.Path] = true
+		if len(res.Files) >= maxGrepFiles {
+			return nil
+		}
+		id, ok := blobs[m.Path]
+		if !ok {
+			continue
+		}
+		obj, err := s.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if len(obj.Payload) > maxGrepFileBytes || isBinary(obj.Payload) {
+			continue
+		}
+		res.Files = append(res.Files, GrepFile{Path: m.Path, Content: string(obj.Payload)})
+	}
+	return nil
 }
 
 var errStopWalk = errors.New("stop walk")
