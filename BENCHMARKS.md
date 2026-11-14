@@ -607,6 +607,71 @@ round trips are not hiding anything at this scale. Perry over HTTP sometimes rec
 *fewer* retries than in process, because the slower path spreads the agents out and
 they collide less.
 
+## Individual operations
+
+Against a generated corpus of 400 files and 7.49 MB. These are microbenchmarks of one
+call at a time, not a comparison against git.
+
+| Operation | Result |
+|---|---|
+| Fork a branch | 171 µs, 0 objects copied |
+| 20 stock git clients pushing at once | 20/20 landed in 709 ms, no lost refs |
+| 40 concurrent pushes, SQLite backend | all landed, no lost refs |
+| grep, rare pattern, 400 files | 122 ms |
+| grep, common pattern, 400 files, limit 50 | 18 ms |
+| Fleet of 5 agents, fork + grep + read + commit + merge | 106 ms, 35 requests, 0.8 KB, 0 clones |
+
+Grep runs one worker per core and stops reading once it has four times the requested
+limit, so the common-pattern case finishes faster than the rare one.
+
+## Throughput
+
+| Operation | Throughput |
+|---|---|
+| Resolve a packfile, deltas included | 13.2 MB/s |
+| Apply a delta | 6.36 GB/s |
+| Search for a delta | 159 MB/s |
+
+Applying is two orders of magnitude faster than searching, and a delta is searched for
+once but applied on every read.
+
+## Compression
+
+Perry's packer against git's own output for 1078 objects: a shallow bare clone of
+[spf13/cobra](https://github.com/spf13/cobra), 10.19 MB uncompressed, 69% of pack
+entries stored as deltas. Objects are sorted by type, then by a hash of the path they
+were first seen at, then by size, which is git's order; the delta window is how many
+recently written objects each new object is compared against.
+
+| Window | Pack size | vs. uncompressed | vs. git | Pack time |
+|---:|---:|---:|---:|---:|
+| 0 (off) | 2.63 MB | 3.9x | 5.02x | 0.30 s |
+| **10** (default) | **456 KB** | **22.9x** | **0.85x** | **1.55 s** |
+| 25 | 440 KB | 23.7x | 0.82x | 5.36 s |
+| 50 | 434 KB | 24.1x | 0.81x | 13.1 s |
+| 100 | 433 KB | 24.1x | 0.81x | 29.2 s |
+| 250 | 431 KB | 24.2x | 0.80x | 66.6 s |
+
+```
+Pack size by delta window                     git's own pack: 537 KB
+  0  ████████████████████████████████████████████████  2.63 MB
+ 10  ████████                                           456 KB
+ 25  ████████                                           440 KB
+ 50  ████████                                           434 KB
+100  ████████                                           433 KB
+250  ████████                                           431 KB
+     └────────────────────────────────────────────────
+```
+
+Ordering keeps the window small. Sorted by type and size alone, the same objects at
+window 10 pack to 2.20 MB, 4.2x git, and need a window of 250 to catch up. With
+revisions of one file next to each other, the right base is nearly always within ten
+slots, and a wider window buys 5% for forty times the packing time.
+
+Why Perry's pack comes out smaller than git's here is not settled. Git's pack was
+written by a server answering a shallow clone, and a server reuses the deltas it
+already has rather than searching for better ones.
+
 ## Known limits
 
 - One machine, one operator, two Go repositories.
