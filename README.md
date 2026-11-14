@@ -20,10 +20,11 @@ of them reads a line. Finding one file in grpc-go, 6,100 commits and 1,424 files
 | shallow clone, sparse, *told the directory* | 2.23 s | 746 KB | 3.08 MB |
 | **grep the API, read the file** | **728 ms** | **27.2 KB** | **0 B** |
 
-That is code access, not a finished task. With a real model in the loop Perry finished
-20 of 20 agent tasks at a median 18.3 s against a shallow clone's 22.5 s, moving 2.4 KB
-per task against 1.81 MB, and **cost 1.19 times as much in tokens**. If you pay for
-inference and not for bandwidth or wall clock, a shallow clone is cheaper.
+That measures code access, before a model has done anything with it. With a real
+model in the loop Perry finished 20 of 20 agent tasks at a median 18.3 s against a
+shallow clone's 22.5 s, moving 2.4 KB per task against 1.81 MB. It cost 1.19 times as
+much in tokens. If you pay for inference and not for bandwidth or wall clock, a
+shallow clone is cheaper.
 [Every run and every confound](BENCHMARKS.md).
 
 ## Install
@@ -62,7 +63,7 @@ or a push, and `git clone` of the branch it wrote returns a normal repository.
 `perry_commit` takes search-and-replace edits, not a unified diff. Each `old` string
 must occur exactly once or the commit is refused, so an edit that could land in two
 places is rejected rather than guessed at. Every write carries `expect`, which makes
-it a compare-and-swap. See **[API.md](API.md)**.
+it a compare-and-swap. See [API.md](API.md).
 
 ## Why Perry
 

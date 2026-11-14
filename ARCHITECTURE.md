@@ -46,7 +46,7 @@ Objects are sorted by type, then by a hash of the path they were first seen at, 
 by size, which is git's order. The delta window is how many recently written objects
 each new object is compared against; the default is 10.
 
-Ordering is what keeps the window small. Sorted by type and size alone, the same
+Ordering keeps the window small. Sorted by type and size alone, the same
 objects at window 10 pack to 2.20 MB against git's 537 KB, and need a window of 250 to
 catch up. With revisions of one file next to each other, the right base is nearly
 always within ten slots, and a wider window buys 5% for forty times the packing time.

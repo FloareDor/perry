@@ -125,8 +125,7 @@ Perry does not take a unified diff. A diff carries line numbers and context that
 model reconstructs from memory, and when it gets them wrong the patch can still apply
 in the wrong place. An exact string either occurs once or it does not.
 
-This is also the single change that turned the agent benchmark around. `perry_commit`
-originally took each file's complete new contents, so a model editing a 733-line file
+The same change turned the agent benchmark around. `perry_commit` originally took each file's complete new contents, so a model editing a 733-line file
 re-emitted all 733 lines: 15,040 output tokens against 585 for the arm with a normal
 edit tool, and 59 extra seconds of the model typing out a file it had just been shown.
 
