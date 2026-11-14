@@ -39,7 +39,10 @@ const agentModel = "claude-sonnet-5-5"
 // agentTimeout bounds one task. A model that has not finished a three-step
 // edit in five minutes is stuck, and recording it as stuck is more useful
 // than waiting.
-const agentTimeout = 5 * time.Minute
+// It is a var rather than a const because the real-coding-task suite needs a
+// longer budget: those tasks iterate against a failing test, which is work
+// rather than being stuck.
+var agentTimeout = 5 * time.Minute
 
 // requireAgentBench gates the real-agent comparison.
 func requireAgentBench(t testing.TB) string {
@@ -428,15 +431,7 @@ func gitArm(t *testing.T, bin string, c *corpus, gitRoot string, net *netShaper,
 		hint = fmt.Sprintf("\n\nWhat you are looking for is in the %s/ directory. This is a sparse checkout and only that directory is present.", c.spec.sparse)
 	}
 
-	prompt := fmt.Sprintf(`You are in a git working tree. The repository is already cloned at the current directory and a remote called "origin" is configured.
-
-Task:
-%s%s
-
-Commit your work with the message "agent edit" and push it to origin on the branch main. When you are done, report the paths you changed and the commit id.`,
-		j.goal, hint)
-
-	res, elapsed, err := runClaude(t, bin, work, prompt, []string{
+	res, elapsed, err := runClaude(t, bin, work, gitAgentPrompt(j.goal, hint), []string{
 		"--allowed-tools", "Bash,Read,Edit,Write,Glob,Grep",
 		"--permission-mode", "acceptEdits",
 	}, filepath.Join(results, variant+"-"+j.tag+".json"))
@@ -462,6 +457,21 @@ Commit your work with the message "agent edit" and push it to origin on the bran
 	}
 	run.landed = true
 	return run
+}
+
+// gitAgentPrompt is the preamble every git arm gets, shared rather than
+// written out at each call site. The arms differ in how their checkout was
+// produced and in nothing else; a second copy of this text is a second place
+// for one arm to drift away from the others, which is exactly the confound
+// this harness has already been caught by once.
+func gitAgentPrompt(goal, hint string) string {
+	return fmt.Sprintf(`You are in a git working tree. The repository is already cloned at the current directory and a remote called "origin" is configured.
+
+Task:
+%s%s
+
+Commit your work with the message "agent edit" and push it to origin on the branch main. When you are done, report the paths you changed and the commit id.`,
+		goal, hint)
 }
 
 func fillFromClaude(run *agentRun, res *claudeResult) {
