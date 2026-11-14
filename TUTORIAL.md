@@ -195,7 +195,7 @@ claude mcp remove perry
 
 ## What to read next
 
-- [README](README.md#the-http-api) — the full HTTP API and the MCP tool table.
+- [API.md](API.md) — the full HTTP API and the MCP tool table.
 - [BENCHMARKS.md](BENCHMARKS.md) — how this compares with an optimised git
   checkout, including the measurement Perry lost.
 - `perry -h` — every flag.
