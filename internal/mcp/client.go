@@ -65,13 +65,19 @@ func (c *Client) endpoint(name string, q url.Values) string {
 // do issues a request and returns the body, turning a perry error document
 // into a Go error so a tool handler does not have to unpack it.
 func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byte, error) {
+	data, _, err := c.doWithHeader(ctx, method, url, body)
+	return data, err
+}
+
+// doWithHeader is do, for the one caller that needs a response header.
+func (c *Client) doWithHeader(ctx context.Context, method, url string, body []byte) ([]byte, http.Header, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -82,46 +88,52 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte) ([]byt
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("perry server unreachable at %s: %w", c.Base, err)
+		return nil, nil, fmt.Errorf("perry server unreachable at %s: %w", c.Base, err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return nil, fmt.Errorf("perry: %s (HTTP %d)", e.Error, resp.StatusCode)
+			return nil, nil, fmt.Errorf("perry: %s (HTTP %d)", e.Error, resp.StatusCode)
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("perry: unauthorized (HTTP 401): set -token, or PERRY_TOKEN")
+			return nil, nil, fmt.Errorf("perry: unauthorized (HTTP 401): set -token, or PERRY_TOKEN")
 		}
-		return nil, fmt.Errorf("perry: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return nil, nil, fmt.Errorf("perry: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
-	return data, nil
+	return data, resp.Header, nil
 }
 
 // Grep searches the repository at a revision.
-func (c *Client) Grep(ctx context.Context, pattern, rev string, paths []string, ctxLines, limit int, caseSensitive bool) (*api.GrepResult, error) {
-	q := url.Values{"q": {pattern}}
-	if rev != "" {
-		q.Set("ref", rev)
+// The options travel as one struct rather than seven positional arguments,
+// because the call site had reached the point where two bools in a row were
+// only distinguishable by counting commas.
+func (c *Client) Grep(ctx context.Context, opts api.GrepOptions) (*api.GrepResult, error) {
+	q := url.Values{"q": {opts.Pattern}}
+	if opts.Rev != "" {
+		q.Set("ref", opts.Rev)
 	}
-	for _, p := range paths {
+	for _, p := range opts.PathPrefixes {
 		q.Add("path", p)
 	}
-	if ctxLines > 0 {
-		q.Set("context", strconv.Itoa(ctxLines))
+	if opts.Context > 0 {
+		q.Set("context", strconv.Itoa(opts.Context))
 	}
-	if limit > 0 {
-		q.Set("limit", strconv.Itoa(limit))
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
 	}
-	if caseSensitive {
+	if opts.CaseSensitive {
 		q.Set("case", "true")
+	}
+	if opts.IncludeFiles {
+		q.Set("files", "true")
 	}
 	data, err := c.do(ctx, http.MethodGet, c.endpoint("grep", q), nil)
 	if err != nil {
@@ -136,11 +148,30 @@ func (c *Client) Grep(ctx context.Context, pattern, rev string, paths []string, 
 
 // ReadFile returns one file's bytes at a revision.
 func (c *Client) ReadFile(ctx context.Context, rev, path string) ([]byte, error) {
+	data, _, err := c.ReadFileRange(ctx, rev, path, 0, 0)
+	return data, err
+}
+
+// ReadFileRange returns a line range of a file, and the file's length in
+// lines so the caller can say what it did not fetch. Lines are 1-based and
+// inclusive; a negative start counts back from the end.
+func (c *Client) ReadFileRange(ctx context.Context, rev, path string, start, end int) ([]byte, int, error) {
 	q := url.Values{"path": {path}}
 	if rev != "" {
 		q.Set("ref", rev)
 	}
-	return c.do(ctx, http.MethodGet, c.endpoint("file", q), nil)
+	if start != 0 {
+		q.Set("start", strconv.Itoa(start))
+	}
+	if end != 0 {
+		q.Set("end", strconv.Itoa(end))
+	}
+	data, hdr, err := c.doWithHeader(ctx, http.MethodGet, c.endpoint("file", q), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, _ := strconv.Atoi(hdr.Get("X-Perry-Lines"))
+	return data, total, nil
 }
 
 // ListFiles returns the paths at a revision, optionally filtered by a glob.

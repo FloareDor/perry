@@ -111,6 +111,7 @@ func findClaude() (string, error) {
 // agentRun is one task attempt by one arm.
 type agentRun struct {
 	arm   string
+	task  string
 	rtt   time.Duration
 	trial int
 
@@ -266,12 +267,23 @@ func TestRealAgentComparison(t *testing.T) {
 			// rather than by trusting the model's own report of success.
 			marker := fmt.Sprintf("// perry-bench %d-%d", rtt.Milliseconds(), time.Now().UnixNano())
 
+			j := job{
+				rtt:   rtt,
+				trial: trial,
+				tag:   fmt.Sprintf("rtt%d-t%d", rtt.Milliseconds(), trial),
+				goal: fmt.Sprintf(`1. Find the file that contains the string %q.
+2. Append this exact line to the very end of it, after the last line: %s
+
+Keep the rest of the file byte-for-byte unchanged.`, c.spec.needle, marker),
+				verify: markerLanded(marker),
+			}
+
 			runs = append(runs,
-				perryArm(t, bin, c, perryBin, perryNet, rtt, trial, marker, results),
-				gitArm(t, bin, c, gitRoot, gitNet, rtt, trial, marker, results,
+				perryArm(t, bin, c, perryBin, perryNet, j, results),
+				gitArm(t, bin, c, gitRoot, gitNet, j, results,
 					"git shallow", "shallow", false,
 					"--depth", "1"),
-				gitArm(t, bin, c, gitRoot, gitNet, rtt, trial, marker, results,
+				gitArm(t, bin, c, gitRoot, gitNet, j, results,
 					"git sparse (told the dir)", "sparse", true,
 					"--depth", "1", "--filter=blob:none", "--sparse"),
 			)
@@ -298,17 +310,18 @@ func TestRealAgentComparison(t *testing.T) {
 // filesystem, no git. It is run from an empty directory, so there is nothing
 // local to fall back on even if it tried.
 func perryArm(t *testing.T, bin string, c *corpus, perryBin string, net *netShaper,
-	rtt time.Duration, trial int, marker, results string) agentRun {
+	j job, results string) agentRun {
 
-	run := agentRun{arm: "perry (MCP)", rtt: rtt, trial: trial}
-	branch := fmt.Sprintf("agent/perry-%d-%d", rtt.Milliseconds(), trial)
+	run := agentRun{arm: "perry (MCP)", rtt: j.rtt, trial: j.trial, task: j.task}
+	branch := "agent/" + j.tag
 
 	// The branch is created off the clock, to match the git arms: each of
 	// those gets its own fork of the origin before its timer starts, so
 	// charging perry for a branch creation the others do not pay for would
 	// tilt the comparison.
 	ctx := context.Background()
-	if _, err := api.Fork(ctx, c.store, "main", branch); err != nil {
+	base, err := api.Fork(ctx, c.store, "main", branch)
+	if err != nil {
 		t.Fatalf("preparing %s: %v", branch, err)
 	}
 
@@ -330,13 +343,10 @@ func perryArm(t *testing.T, bin string, c *corpus, perryBin string, net *netShap
 There is no local checkout and you cannot create one: you have the perry_* tools and nothing else. Do not try to clone anything.
 
 Task:
-1. Find the file that contains the string %q.
-2. Read that file.
-3. Append this exact line to the very end of it, after the last line: %s
-4. Commit the result to the branch %q with the message "agent edit".
+%s
 
-Keep the rest of the file byte-for-byte unchanged. When you are done, report the path you changed and the commit id.`,
-		c.spec.needle, marker, branch)
+Commit your work to the branch %q with the message "agent edit". When you are done, report the paths you changed and the commit id.`,
+		j.goal, branch)
 
 	net.reset()
 	start := time.Now()
@@ -351,7 +361,7 @@ Keep the rest of the file byte-for-byte unchanged. When you are done, report the
 			"mcp__perry__perry_create_branch",
 			"mcp__perry__perry_commit",
 		}, ","),
-	}, filepath.Join(results, fmt.Sprintf("perry-rtt%d-t%d.json", rtt.Milliseconds(), trial)))
+	}, filepath.Join(results, "perry-"+j.tag+".json"))
 
 	run.total = time.Since(start)
 	run.setup = 0 // there is nothing to set up, which is the claim
@@ -365,16 +375,16 @@ Keep the rest of the file byte-for-byte unchanged. When you are done, report the
 	}
 	fillFromClaude(&run, res)
 
-	// Verified against the server, by a path the agent did not write through.
-	published, rerr := api.ReadFile(ctx, c.store, branch, findMarkedPath(t, c, branch, c.spec.needle))
-	if rerr != nil {
-		run.note = "reading the published file: " + rerr.Error()
+	// Verified against the server, by a path the agent did not write
+	// through, and against the task rather than against the model's report
+	// of having done it.
+	if err := j.verify(&perryReader{c: c, branch: branch, base: base.String()}); err != nil {
+		if run.note == "" {
+			run.note = err.Error()
+		}
 		return run
 	}
-	run.landed = strings.Contains(string(published), strings.TrimSpace(marker))
-	if !run.landed && run.note == "" {
-		run.note = "the marker is not in the published file"
-	}
+	run.landed = true
 	return run
 }
 
@@ -382,13 +392,16 @@ Keep the rest of the file byte-for-byte unchanged. When you are done, report the
 // earlier benchmarks found. The clone is on the clock, because a developer
 // waiting for an agent waits for it too.
 func gitArm(t *testing.T, bin string, c *corpus, gitRoot string, net *netShaper,
-	rtt time.Duration, trial int, marker, results string,
+	j job, results string,
 	arm, variant string, sparse bool, cloneArgs ...string) agentRun {
 
-	run := agentRun{arm: arm, rtt: rtt, trial: trial}
+	run := agentRun{arm: arm, rtt: j.rtt, trial: j.trial, task: j.task}
 
-	name := fmt.Sprintf("%s-%d-%d.git", variant, rtt.Milliseconds(), trial)
+	name := fmt.Sprintf("%s-%s.git", variant, j.tag)
 	origin := forkOrigin(t, c.origin, gitRoot, name)
+	// The tip before the agent touches anything, so a task that asks for
+	// two commits can be checked for two commits.
+	gitBase, _ := gitQuiet(origin, "rev-parse", "main")
 	remote := net.srv.URL + "/" + name
 	parent := t.TempDir()
 	work := filepath.Join(parent, "work")
@@ -408,27 +421,25 @@ func gitArm(t *testing.T, bin string, c *corpus, gitRoot string, net *netShaper,
 	gitB(t, work, "config", "user.name", "perry-agent")
 	run.setup = time.Since(start)
 
-	where := "somewhere in this repository"
+	// The sparse arm is told which directory to look in. That is git's best
+	// case and not a realistic one, and the table says so.
+	hint := ""
 	if sparse {
-		// This arm is told which directory to look in. That is git's best
-		// case and not a realistic one, and the table says so.
-		where = fmt.Sprintf("in the %s/ directory (this is a sparse checkout and only that directory is present)", c.spec.sparse)
+		hint = fmt.Sprintf("\n\nWhat you are looking for is in the %s/ directory. This is a sparse checkout and only that directory is present.", c.spec.sparse)
 	}
 
 	prompt := fmt.Sprintf(`You are in a git working tree. The repository is already cloned at the current directory and a remote called "origin" is configured.
 
 Task:
-1. Find the file that contains the string %q, %s.
-2. Append this exact line to the very end of that file, after the last line: %s
-3. Commit the change with the message "agent edit" and push it to origin on the branch main.
+%s%s
 
-Keep the rest of the file byte-for-byte unchanged. When you are done, report the path you changed and the commit id.`,
-		c.spec.needle, where, marker)
+Commit your work with the message "agent edit" and push it to origin on the branch main. When you are done, report the paths you changed and the commit id.`,
+		j.goal, hint)
 
 	res, elapsed, err := runClaude(t, bin, work, prompt, []string{
 		"--allowed-tools", "Bash,Read,Edit,Write,Glob,Grep",
 		"--permission-mode", "acceptEdits",
-	}, filepath.Join(results, fmt.Sprintf("%s-rtt%d-t%d.json", variant, rtt.Milliseconds(), trial)))
+	}, filepath.Join(results, variant+"-"+j.tag+".json"))
 
 	run.total = time.Since(start)
 	run.wire, run.reqs = net.wire(), net.reqs.Load()
@@ -443,15 +454,13 @@ Keep the rest of the file byte-for-byte unchanged. When you are done, report the
 
 	// Verified on the origin, not in the working tree: an agent that edited
 	// and committed but never pushed has not finished the task.
-	out, gerr := gitQuiet(origin, "grep", "-l", strings.TrimSpace(marker), "main")
-	if gerr != nil {
-		run.note = "the marker is not on origin/main"
+	if err := j.verify(&gitReader{dir: origin, ref: "main", base: strings.TrimSpace(gitBase)}); err != nil {
+		if run.note == "" {
+			run.note = err.Error()
+		}
 		return run
 	}
-	run.landed = strings.TrimSpace(out) != ""
-	if !run.landed && run.note == "" {
-		run.note = "the marker is not on origin/main"
-	}
+	run.landed = true
 	return run
 }
 

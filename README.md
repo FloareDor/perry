@@ -14,6 +14,10 @@ Perry implements the protocol in Go rather than shelling out to the `git` binary
 and refs live in one SQLite file per repository. A TypeScript coordinator runs a fleet of
 agents against it.
 
+New here? [TUTORIAL.md](TUTORIAL.md) is a five-minute walkthrough: start a server, push a
+real repository into it, point a coding agent at it, and watch the agent land a commit
+without cloning anything.
+
 ## Project status
 
 Alpha. Every layer is cross-checked against git 2.35: packs Perry writes pass
@@ -55,11 +59,12 @@ stock client, so everything downstream of the repository keeps working.
 
 **It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
-**It costs more per task than a checkout does.** On the one agent task measured so
-far, Perry finished sooner than an optimised git checkout and moved far fewer bytes,
-but at roughly 1.9 times the token cost: its tools took six turns to git's four and
-ride in a larger prompt that is re-read every one of them. If you are paying for
-inference and not for bandwidth or wall clock, a shallow clone is cheaper.
+**It costs more per task than a checkout does.** Across the twenty agent tasks
+measured so far, Perry finished sooner than an optimised git checkout and moved
+hundreds of times fewer bytes, but at about 1.2 times the token cost: its tools take
+six turns to git's four and ride in a larger prompt that is re-read on every one of
+them. If you are paying for inference and not for bandwidth or wall clock, a shallow
+clone is cheaper.
 
 **It is a storage and protocol layer, and will stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
@@ -137,8 +142,14 @@ curl 'http://localhost:8080/v1/repos/app/grep?q=func+Resolve&ref=main&limit=20'
 
 ```json
 {"matches":[{"path":"internal/api/api.go","line":41,"text":"func Resolve(ctx context.Context, ..."}],
- "truncated":false,"filesScanned":400,"filesMatched":2}
+ "truncated":false,"filesScanned":400,"filesMatched":2,"filesSkipped":3,
+ "commit":"db53fe2a5c1f5d0f69bfb0ed21275201e0ab9c68"}
 ```
+
+`commit` is the revision the search actually ran against, which is what to send back as
+a commit's `expect`: it pins the write to the version that was read rather than to
+whatever the branch has moved to since. `truncated` means there is more to find;
+`filesSkipped` counts binaries and oversized blobs, which is not the same thing.
 
 Read one file at one revision, list files by glob, or list refs:
 
@@ -146,6 +157,14 @@ Read one file at one revision, list files by glob, or list refs:
 curl 'http://localhost:8080/v1/repos/app/file?ref=main&path=go.mod'
 curl 'http://localhost:8080/v1/repos/app/files?ref=main&glob=internal/**/*.go'
 curl 'http://localhost:8080/v1/repos/app/refs?prefix=refs/heads/agent/'
+```
+
+`file` takes a line range, and `X-Perry-Lines` on the response says how long the whole
+file is. Reading all of a large file to change one line of it is how an agent spends
+its context, which turned out to cost more than the bytes do:
+
+```bash
+curl -D- 'http://localhost:8080/v1/repos/app/file?ref=main&path=internal/api/api.go&start=-20'
 ```
 
 Fork a branch for an agent, then commit to it with no working tree. `expect` is the
@@ -233,8 +252,8 @@ Seven tools come with it:
 
 | Tool | What the agent gets |
 | --- | --- |
-| `perry_grep` | a regex search of every file at a revision, matches only |
-| `perry_read_file` | one file's exact bytes, verbatim and unnumbered |
+| `perry_grep` | a regex search of every file at a revision, and the commit it searched |
+| `perry_read_file` | a file's exact bytes, verbatim and unnumbered, whole or by line range |
 | `perry_list_files` | the paths at a revision, filtered by a glob |
 | `perry_list_tree` | one directory, with types and sizes |
 | `perry_list_branches` | branches and their tips, for `expect` |
@@ -361,52 +380,48 @@ the edit back off the server.
 
 | Arm | RTT | Setup | Agent | Total | Turns | Output tokens | Cost | Wire |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| **perry (MCP)** | 0 ms | **0 ms** | 14.2 s | **16.8 s** | 6 | 1,078 | $0.13 | **28.1 KB** |
-| git shallow | 0 ms | 4.7 s | 16.6 s | 23.8 s | 4 | 551 | $0.07 | 3.39 MB |
-| git sparse, told the dir | 0 ms | 2.3 s | 14.9 s | 20.0 s | 4 | 628 | $0.07 | 769 KB |
-| **perry (MCP)** | 75 ms | **0 ms** | 15.7 s | **18.0 s** | 6 | 1,191 | $0.13 | **28.4 KB** |
-| git shallow | 75 ms | 4.9 s | 15.7 s | 23.1 s | 4 | 586 | $0.07 | 3.39 MB |
-| git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | 20.2 s | 4 | 614 | $0.07 | 769 KB |
+| **perry (MCP)** | 0 ms | **0 ms** | 16.6 s | **19.0 s** | 6 | 1,223 | $0.092 | **1.6 KB** |
+| git shallow | 0 ms | 4.7 s | 17.3 s | 24.2 s | 4 | 596 | $0.071 | 3.39 MB |
+| git sparse, told the dir | 0 ms | 2.3 s | 14.5 s | 19.1 s | 4 | 679 | $0.072 | 769 KB |
+| **perry (MCP)** | 75 ms | **0 ms** | 15.2 s | **17.7 s** | 6 | 1,200 | $0.087 | **1.5 KB** |
+| git shallow | 75 ms | 4.9 s | 16.1 s | 23.3 s | 4 | 575 | $0.071 | 3.39 MB |
+| git sparse, told the dir | 75 ms | 2.8 s | 14.3 s | 19.5 s | 4 | 654 | $0.072 | 769 KB |
 
-**On this task**, Perry finishes **1.2 to 1.4 times sooner** while moving **27 to 121
-times fewer bytes**, and still costs about **1.9 times as much**. One task at three
-trials per cell is first evidence, not a general result: read every number here as a
-measurement of this task, not a property of Perry.
+**On this task**, Perry beats the shallow clone by 1.27 to 1.32 times while moving
+2,100 times fewer bytes, and ties git's best case: 19.0 s against the sparse
+checkout's 19.1 s at 0 ms, and 1.10 times faster at 75 ms. That sparse arm is *told
+which directory to look in*, which is git on ground it would not have in practice.
+Perry costs 1.24 to 1.30 times as much either way.
 
-This is the second run of this benchmark. The first one is worth stating plainly,
-because it is the only reason the second one looks like this.
+One task at three trials per cell is first evidence, not a general result. There is a
+[twenty-task suite](BENCHMARKS.md#twenty-tasks-not-one) for the wider question: Perry
+finished **20/20** at a median 18.3 s against the shallow clone's 22.5 s, and the one
+failure in the whole matrix belongs to the sparse checkout, which miscounted files
+because a third of the repository was not on its disk to count.
 
-**Perry lost the first run by three to four times**, at 4.6 times the cost: 77.6 s
-against 23.6 s, with three trials agreeing within 1.8 s. The cause was a design
-decision, argued for in a commit message and never measured. `perry_commit` took each
-file's **complete new contents**, so a model editing a 733-line file re-emitted all 733
-lines — 15,040 output tokens against 585 for the arm that had a normal edit tool. The
-extra 59 s was the model typing out a file it had just been shown, at about 245 tokens
-per second. A transport 53 times leaner is invisible next to a tool that makes the
-model generate twenty-five times more text.
+Two things about these numbers are worth more than the numbers.
 
-The fix was [search-and-replace edits](#the-http-api) in `POST /commit` and in
-`perry_commit`. Nothing else changed: same prompts, same corpus, same model, same
-harness. Output tokens fell from 15,040 to 1,078, and the arm that was 54 s behind came
-out 7 s ahead.
+**Perry lost the first run of this benchmark by three to four times**, at 4.6 times the
+cost: 77.6 s against 23.6 s, with three trials agreeing within 1.8 s. The cause was a
+design decision, argued for in a commit message and never measured. `perry_commit` took
+each file's **complete new contents**, so a model editing a 733-line file re-emitted all
+733 lines — 15,040 output tokens against 585 for the arm that had a normal edit tool.
+The extra 59 s was the model typing out a file it had just been shown. The fix was
+[search-and-replace edits](#the-http-api), and output tokens fell to 1,078.
 
-What Perry wins, and why:
+**Then three attempts to close the cost gap, and only one worked.** The gap looked like
+turns — six against git's four — so the obvious fixes were to need fewer. Making the two
+prompts identical (Perry's arm had been handed an extra step) changed nothing. Letting
+`perry_grep` report its commit and return matched files whole cut requests from four to
+three and turns from six to five, and cost did not move. What worked was giving
+`perry_read_file` a **line range**: the git arm could run `tail`, and Perry's could only
+take a whole file, so an agent appending one line was reading 27 KB to find out what the
+last line was. Cost fell 31% and the wire fell 95%. Turns were the visible difference and
+the wrong thing to optimise; what mattered was how much of the repository ends up in the
+model's context.
 
-- **Setup is free.** 0 ms against 2.3 to 4.9 s, in every run. The agent's first tool
-  call does real work; git's first few minutes of wall clock are a download.
-- **Latency barely touches it.** 0 ms to 75 ms RTT costs Perry 1.2 s and the shallow
-  clone 3.4 s, because Perry makes 4 requests against git's 5 to 9.
-- **The bytes are real but were never the bottleneck.** 28 KB against 3.39 MB matters
-  for a fleet and for a laptop on hotel wifi. It is not what made the difference here.
-
-What it still loses on is **cost: $0.13 against $0.07**. Output tokens are now close,
-551 against 1,078, so the gap is prompt: Perry's arm takes 6 turns to git's 4, and
-carries seven tool schemas in a prefix that is re-read every turn — 215k cached input
-tokens against 154k. Perry buys wall clock and bandwidth with context.
-
-One task, one repository, one model, one file size. See
-[BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop) for every run and
-the confounds.
+See [BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop) for every run
+and the confounds.
 
 ### Contention
 

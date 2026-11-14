@@ -4,7 +4,7 @@ GO      ?= go
 BIN     ?= perry
 CORPORA := testdata/cobra.git testdata/cobra-full.git testdata/grpc-go.git
 
-.PHONY: help build test bench bench-setup bench-contention corpora clean
+.PHONY: help build test bench bench-setup bench-contention bench-agent bench-eval corpora clean
 
 help: ## Show this help
 	@echo "Perry"
@@ -31,6 +31,12 @@ bench-setup: corpora ## Just the setup-cost comparison: perry vs every git path
 
 bench-contention: corpora ## Just the same-ref contention comparison
 	PERRY_BENCH=1 $(GO) test ./internal/bench -run TestSameRefContention -v -timeout 30m
+
+bench-agent: corpora ## The single-task real-agent comparison (needs a logged-in Claude Code; costs money)
+	PERRY_BENCH=1 PERRY_AGENT_BENCH=1 $(GO) test ./internal/bench -run TestRealAgentComparison -v -timeout 180m
+
+bench-eval: corpora ## The 20-task agent suite (needs a logged-in Claude Code; about 22 minutes and a few dollars)
+	PERRY_BENCH=1 PERRY_AGENT_BENCH=1 PERRY_EVAL=1 $(GO) test ./internal/bench -run TestAgentTaskSuite -v -timeout 180m
 
 clean: ## Remove build output (keeps the cached corpora)
 	rm -f $(BIN) $(BIN).exe

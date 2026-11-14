@@ -115,3 +115,48 @@ func blobAt(ctx context.Context, s store.Store, treeID object.ID, filePath strin
 	}
 	return obj.Payload, entry.Mode, nil
 }
+
+// ReadFileRange returns a line range of a file, and the file's total length
+// in lines.
+//
+// Reading a whole file to change its last line is how an agent spends its
+// context, and context is what it pays for. An agent with a shell reaches
+// for tail; one with only these tools had no equivalent, so it took all
+// 733 lines of a file to append one. Lines are 1-based and inclusive, which
+// is how every editor and every error message counts them. A zero end means
+// "to the end of the file", and a negative start counts back from the end,
+// so -20 is the last twenty lines.
+func ReadFileRange(ctx context.Context, s store.Store, rev, filePath string, start, end int) ([]byte, int, error) {
+	data, err := ReadFile(ctx, s, rev, filePath)
+	if err != nil {
+		return nil, 0, err
+	}
+	lines := strings.Split(string(data), "\n")
+	// A file ending in a newline splits into a trailing empty element that
+	// is not a line. Dropping it keeps the count honest and keeps a
+	// tail from being one blank line short.
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
+	total := len(lines)
+	if start == 0 && end == 0 {
+		return data, total, nil
+	}
+
+	if start < 0 {
+		start = total + start + 1
+	}
+	if start < 1 {
+		start = 1
+	}
+	if end <= 0 || end > total {
+		end = total
+	}
+	if start > total {
+		return nil, total, fmt.Errorf("api: %s has %d lines; line %d is past the end", filePath, total, start)
+	}
+	if start > end {
+		return nil, total, fmt.Errorf("api: %s: line %d is after line %d", filePath, start, end)
+	}
+	return []byte(strings.Join(lines[start-1:end], "\n") + "\n"), total, nil
+}

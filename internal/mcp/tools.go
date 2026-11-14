@@ -30,7 +30,14 @@ func Tools(c *Client) []Tool {
 				"Use this instead of cloning the repository or running grep locally: " +
 				"the search runs on the server against every file at a revision, so " +
 				"there is no checkout and nothing is downloaded but the matches. " +
-				"Returns path:line: text for each match.",
+				"Returns path:line: text for each match, and the commit it searched. " +
+				"Pass that commit to perry_commit as expect; it is the version your " +
+				"edits are written against, so you do not need perry_list_branches. " +
+				"Use context to see the lines around a match, which is usually " +
+				"enough to write an edit without reading the file at all. " +
+				"include_files returns up to three matched files whole; it saves a " +
+				"round trip when you genuinely need all of each one, and wastes " +
+				"context when you do not.",
 			InputSchema: object(map[string]any{
 				"pattern": prop("string", "Go regular expression to search for."),
 				"ref":     prop("string", "Branch, tag or commit to search. Defaults to HEAD."),
@@ -42,6 +49,8 @@ func Tools(c *Client) []Tool {
 				"context":        prop("integer", "Lines of context to include on each side of a match."),
 				"limit":          prop("integer", "Stop after this many matches. Defaults to 1000."),
 				"case_sensitive": prop("boolean", "Match case exactly. Defaults to false."),
+				"include_files": prop("boolean", "Return the matched files in full, up to three of them. "+
+					"Use it when you intend to edit what you find."),
 			}, "pattern"),
 			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
 				var a struct {
@@ -51,6 +60,7 @@ func Tools(c *Client) []Tool {
 					Context       int      `json:"context"`
 					Limit         int      `json:"limit"`
 					CaseSensitive bool     `json:"case_sensitive"`
+					IncludeFiles  bool     `json:"include_files"`
 				}
 				if err := json.Unmarshal(raw, &a); err != nil {
 					return "", err
@@ -58,7 +68,15 @@ func Tools(c *Client) []Tool {
 				if a.Pattern == "" {
 					return "", fmt.Errorf("pattern is required")
 				}
-				res, err := c.Grep(ctx, a.Pattern, a.Ref, a.Paths, a.Context, a.Limit, a.CaseSensitive)
+				res, err := c.Grep(ctx, api.GrepOptions{
+					Pattern:       a.Pattern,
+					Rev:           a.Ref,
+					PathPrefixes:  a.Paths,
+					Context:       a.Context,
+					Limit:         a.Limit,
+					CaseSensitive: a.CaseSensitive,
+					IncludeFiles:  a.IncludeFiles,
+				})
 				if err != nil {
 					return "", err
 				}
@@ -67,18 +85,26 @@ func Tools(c *Client) []Tool {
 		},
 		{
 			Name: "perry_read_file",
-			Description: "Read one file's exact contents at a revision. " +
-				"No checkout is involved; only this file crosses the network. " +
+			Description: "Read a file's exact contents at a revision. " +
+				"No checkout is involved; only what you ask for crosses the network. " +
 				"The text comes back verbatim with no line numbers, so it can be " +
-				"edited and handed straight back to perry_commit.",
+				"quoted straight back to perry_commit as an edit's old text. " +
+				"Read only the part you need: start_line and end_line take a range, " +
+				"and a negative start_line counts back from the end, so -20 is the " +
+				"last twenty lines. Reading a whole large file to change one line of " +
+				"it fills your context with the rest.",
 			InputSchema: object(map[string]any{
-				"path": prop("string", "Repository-relative path, e.g. internal/api/http.go."),
-				"ref":  prop("string", "Branch, tag or commit. Defaults to HEAD."),
+				"path":       prop("string", "Repository-relative path, e.g. internal/api/http.go."),
+				"ref":        prop("string", "Branch, tag or commit. Defaults to HEAD."),
+				"start_line": prop("integer", "First line to return, 1-based and inclusive. Negative counts back from the end: -20 is the last twenty lines. Omit for the start of the file."),
+				"end_line":   prop("integer", "Last line to return, inclusive. Omit for the end of the file."),
 			}, "path"),
 			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
 				var a struct {
-					Path string `json:"path"`
-					Ref  string `json:"ref"`
+					Path  string `json:"path"`
+					Ref   string `json:"ref"`
+					Start int    `json:"start_line"`
+					End   int    `json:"end_line"`
 				}
 				if err := json.Unmarshal(raw, &a); err != nil {
 					return "", err
@@ -86,18 +112,27 @@ func Tools(c *Client) []Tool {
 				if a.Path == "" {
 					return "", fmt.Errorf("path is required")
 				}
-				data, err := c.ReadFile(ctx, a.Ref, a.Path)
+				data, total, err := c.ReadFileRange(ctx, a.Ref, a.Path, a.Start, a.End)
 				if err != nil {
 					return "", err
 				}
 				if !utf8.Valid(data) {
 					return "", fmt.Errorf("%s is not valid UTF-8 (%d bytes); it is probably binary", a.Path, len(data))
 				}
-				if len(data) > maxFileChars {
-					return string(data[:maxFileChars]) +
-						fmt.Sprintf("\n\n[truncated: %d of %d bytes shown]", maxFileChars, len(data)), nil
+				out := string(data)
+				if len(out) > maxFileChars {
+					return out[:maxFileChars] +
+						fmt.Sprintf("\n\n[truncated: %d of %d bytes shown. Use start_line and end_line to read a part of it.]",
+							maxFileChars, len(out)), nil
 				}
-				return string(data), nil
+				// A partial read says so, with the file's real length, so
+				// the model knows what it has not seen rather than
+				// treating the fragment as the whole file.
+				if a.Start != 0 || a.End != 0 {
+					shown := strings.Count(strings.TrimSuffix(out, "\n"), "\n") + 1
+					return fmt.Sprintf("[%d of %s %d lines]\n%s", shown, a.Path, total, out), nil
+				}
+				return out, nil
 			},
 		},
 		{
@@ -163,8 +198,9 @@ func Tools(c *Client) []Tool {
 		{
 			Name: "perry_list_branches",
 			Description: "List the repository's branches and the commit each points at. " +
-				"Call this before committing, to learn the current tip to pass as " +
-				"expect.",
+				"You do not need this before committing if you have already " +
+				"searched: perry_grep reports the commit it searched, and that is " +
+				"what to pass as expect.",
 			InputSchema: object(map[string]any{
 				"prefix": prop("string", "Reference prefix to filter by, e.g. refs/heads/."),
 			}),
@@ -223,9 +259,10 @@ func Tools(c *Client) []Tool {
 				"file costs one line. Send content instead only for a new file or a " +
 				"deliberate rewrite of the whole thing; re-emitting a file you have " +
 				"just read is slow and error-prone. " +
-				"Pass expect with the commit the branch " +
-				"currently points at (from perry_list_branches) so a concurrent writer " +
-				"cannot be overwritten: a mismatch is rejected rather than merged.",
+				"Pass expect with the commit your edits are written " +
+				"against, which perry_grep reported when you found the file, so a " +
+				"concurrent writer cannot be overwritten: a mismatch is rejected " +
+				"rather than merged.",
 			InputSchema: object(map[string]any{
 				"branch":  prop("string", "Branch to commit to, e.g. agent/fix-timeout."),
 				"message": prop("string", "Commit message."),
@@ -351,7 +388,13 @@ func formatGrep(res *api.GrepResult) string {
 		return fmt.Sprintf("no matches (%d files scanned)", res.Scanned)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d matches in %d of %d files\n\n", len(res.Matches), res.Matched, res.Scanned)
+	fmt.Fprintf(&b, "%d matches in %d of %d files", len(res.Matches), res.Matched, res.Scanned)
+	if res.Commit != "" {
+		// Named on the first line, where a model reading top-down finds
+		// it before it starts planning the edit.
+		fmt.Fprintf(&b, " at commit %s", res.Commit)
+	}
+	b.WriteString("\n\n")
 	for _, m := range res.Matches {
 		for _, l := range m.Before {
 			fmt.Fprintf(&b, "%s-%s\n", m.Path, l)
@@ -363,6 +406,16 @@ func formatGrep(res *api.GrepResult) string {
 	}
 	if res.Truncated {
 		b.WriteString("\n[truncated: raise limit or narrow paths for more]")
+	}
+	for _, f := range res.Files {
+		// Delimited the way a file is quoted in a conversation, because
+		// that is the form the model has seen most: a header naming the
+		// path, then the bytes, unaltered and unnumbered so they can be
+		// quoted straight back as an edit's old text.
+		fmt.Fprintf(&b, "\n\n--- %s ---\n%s", f.Path, f.Content)
+	}
+	if len(res.Files) > 0 {
+		fmt.Fprintf(&b, "\n\n[%d file(s) returned in full; commit %s]", len(res.Files), res.Commit)
 	}
 	return b.String()
 }
