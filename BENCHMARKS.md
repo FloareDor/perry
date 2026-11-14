@@ -203,8 +203,9 @@ perry lost it and the loss is why the second run reads the way it does.
 | git shallow | 75 ms | 4.9 s | 15.7 s | **23.1 s** | 4 | 586 | $0.071 | 3.39 MB | 5 |
 | git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | **20.2 s** | 4 | 614 | $0.072 | 769 KB | 9 |
 
-Perry finishes 1.2 to 1.4 times sooner, moving 27 to 121 times fewer bytes,
-and costs 1.9 times as much.
+On this task, perry finishes 1.2 to 1.4 times sooner, moving 27 to 121 times
+fewer bytes, and costs 1.9 times as much. One task at three trials per cell
+establishes that the ordering can go perry's way, not that it generally does.
 
 Every run, because an LLM's wall clock is not repeatable:
 
