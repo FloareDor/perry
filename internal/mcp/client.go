@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
+	"github.com/FloareDor/perry/internal/api"
 )
 
 // Client speaks perry's read/write HTTP API for one repository.

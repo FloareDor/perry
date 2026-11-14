@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Change is one file edit in a commit.

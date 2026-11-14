@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/mcp"
-	"github.com/perry-dev/perry/internal/store"
-	"github.com/perry-dev/perry/internal/store/sqlite"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/mcp"
+	"github.com/FloareDor/perry/internal/store"
+	"github.com/FloareDor/perry/internal/store/sqlite"
 )
 
 // fixture starts a perry HTTP API over an in-memory store seeded with a few

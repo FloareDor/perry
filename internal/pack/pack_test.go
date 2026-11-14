@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 func TestWriteReadRoundTrip(t *testing.T) {

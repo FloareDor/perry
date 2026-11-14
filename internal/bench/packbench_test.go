@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/pack"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/pack"
 )
 
 // findFixturePack locates the packfile of a real repository cloned into

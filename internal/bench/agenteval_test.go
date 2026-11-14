@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 // A suite of agent tasks, where realagent_test.go runs one.
@@ -590,7 +590,7 @@ func TestAgentTaskSuite(t *testing.T) {
 	}
 
 	perryBin := filepath.Join(t.TempDir(), "perry"+exeSuffix())
-	build := exec.Command("go", "build", "-o", perryBin, "github.com/perry-dev/perry/cmd/perry")
+	build := exec.Command("go", "build", "-o", perryBin, "github.com/FloareDor/perry/cmd/perry")
 	build.Dir = repoRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building perry: %v\n%s", err, out)

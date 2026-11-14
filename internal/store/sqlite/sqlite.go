@@ -14,8 +14,8 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go driver, so no cgo and no C toolchain
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Store is a SQLite-backed object and reference store.

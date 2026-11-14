@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 // ErrNotFound reports a missing object or reference.

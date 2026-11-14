@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
+	"github.com/FloareDor/perry/internal/api"
 )
 
 // ---------------------------------------------------------------------------

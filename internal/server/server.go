@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/perry-dev/perry/internal/protocol"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/protocol"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Opener creates or opens the store backing a named repository.

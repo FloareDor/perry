@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/store/sqlite"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/store/sqlite"
 )
 
 // seedForPatch puts one small file on a branch and returns the store and the

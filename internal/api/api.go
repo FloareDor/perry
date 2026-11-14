@@ -15,8 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Resolve turns a revision into an object name.

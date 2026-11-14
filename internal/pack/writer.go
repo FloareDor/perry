@@ -8,7 +8,7 @@ import (
 	"hash"
 	"io"
 
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 // Default delta search parameters. The window is how many recently written

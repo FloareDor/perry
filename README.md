@@ -29,14 +29,18 @@ inference and not for bandwidth or wall clock, a shallow clone is cheaper.
 ## Install
 
 ```bash
-git clone https://github.com/FloareDor/perry && cd perry
-make build
-./perry serve -data ./data
+go install github.com/FloareDor/perry/cmd/perry@main
+perry serve -data ./data
 ```
 
-`go install` does not work yet: the module path in `go.mod` is
-`github.com/perry-dev/perry`, which is not where the repository lives. Build from
-source until that is reconciled.
+`@main` rather than `@latest`, because the v0.1.0 tag predates the module path this
+repository now uses. `@latest` works from the next tagged release. Or build from
+source:
+
+```bash
+git clone https://github.com/FloareDor/perry && cd perry
+make build && ./perry serve -data ./data
+```
 
 The server listens on `127.0.0.1:8080`, keeps one SQLite file per repository under
 `-data`, and needs no other process. Pushing to a name that does not exist creates it:

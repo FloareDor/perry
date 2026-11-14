@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 func TestCommitWithoutCheckout(t *testing.T) {

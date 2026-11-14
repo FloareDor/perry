@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/server"
-	"github.com/perry-dev/perry/internal/store"
-	"github.com/perry-dev/perry/internal/store/sqlite"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/server"
+	"github.com/FloareDor/perry/internal/store"
+	"github.com/FloareDor/perry/internal/store/sqlite"
 )
 
 // Real coding tasks: edit, build, test.
@@ -658,7 +658,7 @@ func TestCodeTaskSuite(t *testing.T) {
 	t.Cleanup(func() { agentTimeout = restore })
 
 	perryBin := filepath.Join(t.TempDir(), "perry"+exeSuffix())
-	build := exec.Command("go", "build", "-o", perryBin, "github.com/perry-dev/perry/cmd/perry")
+	build := exec.Command("go", "build", "-o", perryBin, "github.com/FloareDor/perry/cmd/perry")
 	build.Dir = repoRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building perry: %v\n%s", err, out)
