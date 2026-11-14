@@ -83,3 +83,25 @@ name, err := pack.WriteAll(&buf, objects) // git index-pack accepts the result
 ## Not built yet
 
 An S3 object backend and background repacking. Perry runs on a laptop or a single VM.
+
+## Prior art
+
+|  | Native git protocol | Cloneless read API | Agent fleets | Open source |
+|---|:---:|:---:|:---:|:---:|
+| [Pierre code.storage](https://code.storage) | Yes | Yes | Yes | No |
+| [Entire](https://entire.io) | Uses yours | No | Client-side | Yes |
+| [Gitea](https://gitea.io) | Via `git` | No | No | Yes |
+| [Soft Serve](https://github.com/charmbracelet/soft-serve) | Via `git` | No | No | Yes |
+| [go-git](https://github.com/go-git/go-git) | Library only | No | No | Yes |
+| [Gitaly](https://gitlab.com/gitlab-org/gitaly) | Via `git` | Internal gRPC | No | Yes |
+| Perry | From scratch | Yes | Yes | Yes |
+
+Pierre's code.storage is the closest thing to Perry and a far more mature product.
+Perry exists because there is no open implementation of the same idea.
+
+[`gitformat-pack`](https://git-scm.com/docs/gitformat-pack) and
+[`gitprotocol-http`](https://git-scm.com/docs/gitprotocol-http) are the real
+specification. [go-git](https://github.com/go-git/go-git) is the mature pure-Go git
+library; use it if you want a client.
+[Gitaly](https://gitlab.com/gitlab-org/gitaly) is GitLab's git storage server and the
+closest prior art on the server side.
