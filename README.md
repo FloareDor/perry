@@ -64,6 +64,11 @@ must occur exactly once or the commit is refused, so an edit that could land in 
 places is rejected rather than guessed at. Every write carries `expect`, which makes
 it a compare-and-swap. See [API.md](API.md).
 
+`coordinator/` runs many agents against one Perry. Each forks a branch, greps, reads
+what matched and commits; a serial queue then replays the branches onto the base and
+refuses any that touched a file another agent already changed. Five tasks, 111 ms, 36
+requests, 1.6 KB, no clones. A TypeScript demo of the API, not a supported tool.
+
 ## Why Perry
 
 **Most agent tasks touch a handful of files.** Perry serves grep and file-at-revision

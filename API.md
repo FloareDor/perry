@@ -175,16 +175,32 @@ matched, and commits; a serial queue then replays each branch onto `main`.
 
 ```bash
 cd coordinator && npm install
-node --experimental-strip-types src/index.ts --repo app --tasks tasks.json --agents 20
+node --experimental-strip-types src/index.ts --repo demo --tasks tasks.json --agents 20
 ```
 
 ```
-fleet: 20 tasks, 20 at a time, scripted agent
-  t-01   38ms  9f1c0aa  appended a note to internal/api/api.go
-  ...
-20/20 succeeded, 20 merged, in 212ms
-140 API requests, 3.1 KB read, 0 clones
+fleet: 5 tasks, 20 at a time, scripted agent
+       http://127.0.0.1:8099/demo, forking from main
+
+  t01                 82ms  7f242f38  appended a note to src/main.go
+  t02                 55ms  2671eee9  appended a note to src/main.go
+  t03                 55ms  8b78c8ca  appended a note to src/main.go
+  t04                 55ms  18e84675  appended a note to README.md
+  t05                 72ms  21b8de2a  appended a note to GUIDE.md
+  t01              merged  480e4c80
+  t02              not merged: src/main.go was already changed by t01
+  t03              not merged: src/main.go was already changed by t01
+  t04              merged  884ea408
+  t05              merged  1f9c2510
+
+5/5 succeeded, 3 merged, in 111ms
+36 API requests, 1.6 KB read, 0 clones
 ```
+
+Three of the five tasks were told to edit the same file, so the merge queue takes the
+first and refuses the other two by name rather than interleaving them. The shipped
+`tasks.json` is five tasks against a toy repository; `--agents` is how many run at
+once, not how many tasks exist.
 
 `--mode claude` routes each task through the Claude Agent SDK instead of the scripted
 edit. See [`coordinator/README.md`](coordinator/README.md).
