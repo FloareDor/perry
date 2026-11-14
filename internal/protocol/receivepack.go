@@ -8,9 +8,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/pack"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/pack"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Capabilities advertised for receive-pack.

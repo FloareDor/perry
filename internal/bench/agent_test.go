@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/server"
-	"github.com/perry-dev/perry/internal/store"
-	"github.com/perry-dev/perry/internal/store/sqlite"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/server"
+	"github.com/FloareDor/perry/internal/store"
+	"github.com/FloareDor/perry/internal/store/sqlite"
 )
 
 func gitEnvB() []string {

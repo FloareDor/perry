@@ -46,7 +46,7 @@ Objects are sorted by type, then by a hash of the path they were first seen at, 
 by size, which is git's order. The delta window is how many recently written objects
 each new object is compared against; the default is 10.
 
-Ordering is what keeps the window small. Sorted by type and size alone, the same
+Ordering keeps the window small. Sorted by type and size alone, the same
 objects at window 10 pack to 2.20 MB against git's 537 KB, and need a window of 250 to
 catch up. With revisions of one file next to each other, the right base is nearly
 always within ten slots, and a wider window buys 5% for forty times the packing time.
@@ -83,3 +83,25 @@ name, err := pack.WriteAll(&buf, objects) // git index-pack accepts the result
 ## Not built yet
 
 An S3 object backend and background repacking. Perry runs on a laptop or a single VM.
+
+## Prior art
+
+|  | Native git protocol | Cloneless read API | Agent fleets | Open source |
+|---|:---:|:---:|:---:|:---:|
+| [Pierre code.storage](https://code.storage) | Yes | Yes | Yes | No |
+| [Entire](https://entire.io) | Uses yours | No | Client-side | Yes |
+| [Gitea](https://gitea.io) | Via `git` | No | No | Yes |
+| [Soft Serve](https://github.com/charmbracelet/soft-serve) | Via `git` | No | No | Yes |
+| [go-git](https://github.com/go-git/go-git) | Library only | No | No | Yes |
+| [Gitaly](https://gitlab.com/gitlab-org/gitaly) | Via `git` | Internal gRPC | No | Yes |
+| Perry | From scratch | Yes | Yes | Yes |
+
+Pierre's code.storage is the closest thing to Perry and a far more mature product.
+Perry exists because there is no open implementation of the same idea.
+
+[`gitformat-pack`](https://git-scm.com/docs/gitformat-pack) and
+[`gitprotocol-http`](https://git-scm.com/docs/gitprotocol-http) are the real
+specification. [go-git](https://github.com/go-git/go-git) is the mature pure-Go git
+library; use it if you want a client.
+[Gitaly](https://gitlab.com/gitlab-org/gitaly) is GitLab's git storage server and the
+closest prior art on the server side.

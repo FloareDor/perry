@@ -94,7 +94,7 @@ curl -s -H "Authorization: Bearer $PERRY_TOKEN" \
 ```
 
 ```
-module github.com/perry-dev/perry
+module github.com/FloareDor/perry
 
 go 1.26.0
 ```

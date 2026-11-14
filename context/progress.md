@@ -182,7 +182,7 @@ Scenes: clone hook, twenty-agent lock contention, name card, native git
 push, clone vs grep split (1.31 s / 7.97 MB against 118 ms / 19.3 KB),
 twenty-agent fleet grid with coordinator log, three measured tiles (20/20
 pushes in 709 ms, 171 us fork, 0 lost updates), install and serve, and an
-end card with `github.com/perry-dev/perry` and the `go install` line.
+end card with `github.com/FloareDor/perry` and the `go install` line.
 
 Remotion's headless shell download does not complete here, so the config
 points at the installed Chrome; `--browser-executable` overrides it.

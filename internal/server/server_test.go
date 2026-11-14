@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // gitEnv pins identity and timestamps so commits are reproducible.

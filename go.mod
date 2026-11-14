@@ -1,4 +1,4 @@
-module github.com/perry-dev/perry
+module github.com/FloareDor/perry
 
 go 1.26.0
 

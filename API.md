@@ -3,9 +3,28 @@
 Two surfaces over the same store: an HTTP API for reading and writing a repository
 without a checkout, and an MCP adapter that exposes the same thing to a coding agent.
 
-Every route needs the token when the server was started with one, as either an
-`Authorization: Bearer` header or the password in HTTP Basic auth. `/healthz` stays
-open so a liveness probe needs no credential.
+## Authentication
+
+Git smart HTTP carries `receive-pack`, so a Perry server without a token accepts
+anonymous **pushes** to any repository and creates repositories on demand. Perry
+refuses to bind anything but loopback unless you set a token or pass `-insecure`.
+
+```bash
+perry serve -addr 0.0.0.0:8080 -token "$PERRY_TOKEN"
+```
+
+The token is required on every route, git and API alike, as either an
+`Authorization: Bearer` header or the password in HTTP Basic auth. Git cannot send a
+bearer token, so it uses Basic and the username is ignored:
+
+```bash
+git clone http://x:"$PERRY_TOKEN"@host:8080/app.git
+curl -H "Authorization: Bearer $PERRY_TOKEN" http://host:8080/v1/repos/app/refs
+```
+
+`/healthz` stays open so a liveness probe needs no credential. Put the server behind
+TLS, because Basic auth sends the token in clear text. One token covers every
+repository and every route: no users, no per-repository scopes, no revocation.
 
 ## HTTP
 
@@ -106,8 +125,7 @@ Perry does not take a unified diff. A diff carries line numbers and context that
 model reconstructs from memory, and when it gets them wrong the patch can still apply
 in the wrong place. An exact string either occurs once or it does not.
 
-This is also the single change that turned the agent benchmark around. `perry_commit`
-originally took each file's complete new contents, so a model editing a 733-line file
+The same change turned the agent benchmark around. `perry_commit` originally took each file's complete new contents, so a model editing a 733-line file
 re-emitted all 733 lines: 15,040 output tokens against 585 for the arm with a normal
 edit tool, and 59 extra seconds of the model typing out a file it had just been shown.
 

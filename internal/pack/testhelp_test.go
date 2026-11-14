@@ -3,7 +3,7 @@ package pack
 import (
 	"fmt"
 
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 func fmtSscan(s string, v *int64) (int, error) { return fmt.Sscan(s, v) }

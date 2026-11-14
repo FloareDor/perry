@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/perry-dev/perry/internal/api"
-	"github.com/perry-dev/perry/internal/store/sqlite"
+	"github.com/FloareDor/perry/internal/api"
+	"github.com/FloareDor/perry/internal/store/sqlite"
 )
 
 func seedFiles(t *testing.T, files map[string][]byte) (*sqlite.Store, string) {

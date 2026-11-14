@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/perry-dev/perry/internal/api"
+	"github.com/FloareDor/perry/internal/api"
 )
 
 // maxFileChars caps what one read returns to the model. A multi-megabyte

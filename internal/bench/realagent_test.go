@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perry-dev/perry/internal/api"
+	"github.com/FloareDor/perry/internal/api"
 )
 
 // This file answers the one question every earlier benchmark in this package
@@ -242,7 +242,7 @@ func TestRealAgentComparison(t *testing.T) {
 	// Build the binary the MCP adapter runs as. The agent launches it, so it
 	// has to exist on disk rather than in the test process.
 	perryBin := filepath.Join(t.TempDir(), "perry"+exeSuffix())
-	build := exec.Command("go", "build", "-o", perryBin, "github.com/perry-dev/perry/cmd/perry")
+	build := exec.Command("go", "build", "-o", perryBin, "github.com/FloareDor/perry/cmd/perry")
 	build.Dir = repoRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building perry: %v\n%s", err, out)

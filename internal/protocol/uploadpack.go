@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/pack"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/pack"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Agent identifies this server in capability advertisements.

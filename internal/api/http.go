@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Handler serves the read API under /v1/repos/{repo}/...

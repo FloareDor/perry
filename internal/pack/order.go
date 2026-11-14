@@ -3,7 +3,7 @@ package pack
 import (
 	"sort"
 
-	"github.com/perry-dev/perry/internal/object"
+	"github.com/FloareDor/perry/internal/object"
 )
 
 // NameHash is git's pack_name_hash: a cheap hash of a path that keeps

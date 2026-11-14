@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Walk collects every object reachable from want and not reachable from

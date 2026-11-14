@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/perry-dev/perry/internal/object"
-	"github.com/perry-dev/perry/internal/store"
+	"github.com/FloareDor/perry/internal/object"
+	"github.com/FloareDor/perry/internal/store"
 )
 
 // Edit replaces one exact run of text inside a file.
