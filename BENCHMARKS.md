@@ -461,9 +461,116 @@ spread. `new-file` on cobra went to the shallow clone by 4.5 seconds, and
   but no one else has checked that.
 - One model. The tool descriptions were written for a model to read, and a
   different model may read them differently.
-- No task here needs a build or a test run. That is the case perry is worst
-  at: it does not serve shallow or partial clones, so an agent that needs a
-  real working tree pays more against perry than against GitHub.
+- No task here needs a build or a test run. That case has its own suite
+  below, [Real coding tasks](#real-coding-tasks-edit-build-test), which also
+  adds the warm-worktree baseline this section lacks.
+
+## Real coding tasks: edit, build, test
+
+Everything above measures repository operations. Find a file, change a line,
+commit it. None of those tasks needs the result to compile and none needs the
+agent to run anything, which is the easy half of an agent's day and also the
+half perry was built for -- so a suite made only of that flatters perry by
+construction.
+
+This is the other half. Three tasks against a small Go module (a lexer, a
+parser and an evaluator for arithmetic expressions, about 400 lines, standard
+library only, in `internal/bench/testdata/calc`):
+
+| Task | What it takes |
+|---|---|
+| `fix-failing-test` | division is right associative, so `8/4/2` is 4. The test that fails is in `eval`; the defect is in `parse`. |
+| `add-operator` | implement `%` end to end: a token in `lex`, a precedence level in `parse`, a case in `eval`. |
+| `error-offsets` | every lexing and parsing error must say `at offset N`, which means threading a position through two packages. |
+
+An attempt counts as finished only when **the harness itself** writes the
+agent's commit into an empty directory and `go test ./...` passes there. The
+test files must come back byte for byte as they were posed: editing the
+failing test is the cheapest way to make a suite pass, and it is caught. The
+model's own report of success is never consulted.
+
+`TestCodeTaskGrading` runs without a model and checks the grader before any
+money is spent on it: for every task, the repository as the agent first finds
+it must be graded a failure, and a repository with a tampered test file must
+be rejected. A grader that passed everything would otherwise report four
+perfect arms and mean nothing.
+
+### Four arms, two of them new
+
+| Arm | What it has |
+|---|---|
+| `perry (MCP)` | the seven perry tools. No shell, no checkout, no way to compile or run anything. |
+| `perry + test sandbox` | perry's tools for editing, plus a clone of the branch alongside, used only to run the tests. The clone is on the clock, and perry serves full clones only, so this is perry's worst case. |
+| `git warm worktree` | a full checkout already on disk. Only `git pull` is on the clock. |
+| `git shallow (cold)` | `git clone --depth 1` each time, as elsewhere in this file. |
+
+The warm worktree is the baseline the earlier numbers were missing. Every git
+arm in the rest of this file clones from nothing, which is the comparison that
+flatters perry most, because perry's advantage is precisely that it never
+clones. A platform that keeps repository caches does not pay that twice.
+
+### The result, and why it is not a win
+
+Two attempts per task per arm, one model, 0 ms RTT.
+
+| Arm | Passed | Median | Setup | Cost/task | Wire/task |
+|---|---:|---:|---:|---:|---:|
+| perry (MCP) | **6/6** | 20.7 s | 0 ms | $0.1196 | 12.3 KB |
+| perry + test sandbox | **6/6** | 29.8 s | 458 ms | $0.1142 | 15.4 KB |
+| git warm worktree | **6/6** | 27.3 s | 319 ms | $0.1082 | 1.5 KB |
+| git shallow (cold) | **6/6** | 27.2 s | 478 ms | $0.1044 | 7.1 KB |
+
+**Every arm finished every task. The completion metric saturated, so on these
+tasks it does not discriminate between the arms at all.** That is a finding
+about the benchmark before it is a finding about perry: three tasks at this
+size are not hard enough to separate four tool surfaces, and 24 for 24 should
+be read as "none of these were difficult", not as a tie that perry earned.
+
+Per task, median of two:
+
+| Task | perry (MCP) | perry+sandbox | git warm | git cold |
+|---|---:|---:|---:|---:|
+| `fix-failing-test` | 23.3 s | 25.4 s | 27.3 s | 25.1 s |
+| `add-operator` | 20.7 s | 30.2 s | 38.1 s | 34.8 s |
+| `error-offsets` | 20.1 s | 29.8 s | 26.7 s | 27.2 s |
+
+### What is worth taking from it
+
+**The arm that cannot run code passed all six.** `perry (MCP)` has no shell.
+It had to read the failing test, work out from the source what the code was
+doing wrong, and write correct Go without ever compiling it -- including
+adding an operator across three packages, which is the kind of change a
+developer would certainly run the tests on. It got all six right. The
+limitation this file has asserted since the beginning, that perry is worst at
+tasks needing a real working tree, is real in principle and did not bite once
+here.
+
+**Its speed is not an advantage.** `perry (MCP)` has the fastest median, and
+the reason is that it skipped a step the other three paid for: it never ran
+`go test`. A number that is lower because less work was done is not a win, and
+reading it as one would be the same mistake as optimising turn count.
+
+**The warm baseline is now measured and says nothing yet.** Warm setup is
+319 ms against the cold clone's 478 ms -- 160 ms, on a 46 KB fixture. The
+whole point of a warm worktree is that it does not re-download a large
+repository, and this repository is not large. To mean anything the warm arm
+needs a corpus where the clone costs seconds, which is the grpc-go-sized
+measurement this suite does not yet do.
+
+### What this still does not show
+
+- One fixture, 46 KB, written for this benchmark by the author of the thing
+  being measured. The tasks are honest tasks, but they are also small, and
+  nothing here says what happens in a repository where the agent cannot hold
+  the relevant code in its head.
+- Two attempts per task. Enough to notice a coin flip, not enough to put a
+  number on a completion rate that came out at 100%.
+- No task needs a dependency, a build tag, a generated file, or more than one
+  module. Those are the cases where a real working tree earns its cost, and
+  none of them is here.
+- The sandbox arm's protocol -- edit through perry, pull, test -- was written
+  by hand for this harness. A developer who actually paired perry with a
+  sandbox would likely want the server to do the syncing.
 
 ## Same-ref contention
 
@@ -512,7 +619,9 @@ they collide less.
 - Perry does not serve shallow or partial clones. `--depth` is refused
   outright; `--filter` is silently ignored and the client gets a full clone.
   An agent that needs a real checkout, to run a build or a test suite, pays
-  more against perry than against GitHub.
+  more against perry than against GitHub. The
+  [real-coding-task suite](#real-coding-tasks-edit-build-test) measures that
+  arm; on a small fixture it cost 458 ms of clone and nothing else.
 - The real-agent comparison is one task, one repository, one model and one
   file size, at three trials per cell. The first run of it, with whole-file
   writes, turned entirely on the edited file's size, and that was not varied;
@@ -523,8 +632,11 @@ they collide less.
 - The twenty-task suite reports completion solidly and timings weakly: one
   trial per task means any per-task difference under about three seconds is
   noise. Its tasks were written by the author of the thing being measured.
-- No agent benchmark here requires a build or a test run, which is the case
-  perry is worst at.
+- The real-coding-task suite does require a build and a test run, but against
+  a 46 KB fixture written for it, at two attempts per task. Every arm passed
+  every task, so its completion metric saturated and separates nothing; the
+  warm-worktree baseline it adds is measured on a repository too small for a
+  warm checkout to matter.
 - The contention benchmark's HTTP runs are loopback. A remote agent would also
   pay network latency on each of the three requests per attempt, and a remote
   git agent would pay it per subprocess round trip too.

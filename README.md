@@ -420,6 +420,18 @@ last line was. Cost fell 31% and the wire fell 95%. Turns were the visible diffe
 the wrong thing to optimise; what mattered was how much of the repository ends up in the
 model's context.
 
+**And a suite where the agent has to make the tests pass.** Every benchmark above
+measures repository operations, none of which has to compile. There is now a
+[real-coding-task suite](BENCHMARKS.md#real-coding-tasks-edit-build-test) — fix a
+failing test, add an operator across three packages, thread error positions through
+two — where an attempt counts only if the harness clones the agent's commit into an
+empty directory and `go test ./...` passes there. Every arm passed every task, so
+**its completion metric saturated and separates nothing**: three tasks at that size
+are not hard enough to tell four tool surfaces apart. The one thing worth taking from
+it is that the arm with no shell at all passed all six attempts — it had to write
+correct Go without ever compiling it, and did. Its faster median is not a win; it is
+lower because it skipped the test runs the others paid for.
+
 See [BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop) for every run
 and the confounds.
 
