@@ -30,7 +30,7 @@ for a local experiment — the rest of the walkthrough uses it:
 
 ```bash
 export PERRY_TOKEN=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
-./perry serve -data ./perry-data -token "$PERRY_TOKEN" &
+./perry serve -addr 127.0.0.1:8088 -data ./perry-data -token "$PERRY_TOKEN" &
 ```
 
 ```
@@ -38,10 +38,9 @@ export PERRY_TOKEN=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
 23:51:49   git clone http://127.0.0.1:8088/demo.git
 ```
 
-> The transcripts here were captured on port **8088**, because 8080 was already
-> taken on the machine they were run on. If 8080 is free you will see it
-> instead, and every URL below works unchanged; if it is not, add
-> `-addr 127.0.0.1:8088` and substitute the port.
+> The port is pinned to **8088** so every command below can be pasted as it
+> stands. Perry's default is 8080; `-addr` is only here to keep the walkthrough
+> consistent, and to stay out of the way of whatever is already on 8080.
 
 The data directory is created on demand. Each repository is one SQLite file in
 it; there is nothing else to set up, and no daemon but this one.
@@ -207,7 +206,7 @@ The shape is the same; three things differ.
 
 ```powershell
 $env:PERRY_TOKEN = -join ((1..16) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
-Start-Process -NoNewWindow .\perry.exe "serve -data .\perry-data -token $env:PERRY_TOKEN"
+Start-Process -NoNewWindow .\perry.exe "serve -addr 127.0.0.1:8088 -data .\perry-data -token $env:PERRY_TOKEN"
 git push "http://x:$env:PERRY_TOKEN@127.0.0.1:8088/demo.git" main
 curl.exe -s -H "Authorization: Bearer $env:PERRY_TOKEN" "http://127.0.0.1:8088/v1/repos/demo/grep?q=func+runMCP&ref=main"
 ```
