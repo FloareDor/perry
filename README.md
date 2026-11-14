@@ -55,11 +55,11 @@ stock client, so everything downstream of the repository keeps working.
 
 **It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
-**Whole-file writes cost the model more than the network saves.** The commit API takes
-each file's complete new contents, so an agent editing a large file re-emits all of it.
-Measured against an optimised git checkout with a real model in the loop, that makes
-Perry three to four times slower on a 733-line file despite moving 53 times fewer bytes.
-The transport is not the bottleneck; this is.
+**It costs more per task than a checkout does.** Perry finishes a real agent task
+sooner than an optimised git checkout and moves far fewer bytes, but at roughly 1.9
+times the token cost: its tools take more turns and ride in a larger prompt that is
+re-read every one of them. If you are paying for inference and not for bandwidth or
+wall clock, a shallow clone is cheaper.
 
 **It is a storage and protocol layer, and will stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
@@ -162,6 +162,26 @@ curl -X POST localhost:8080/v1/repos/app/commit -d '{
 }'
 ```
 
+A change can carry `edits` instead of `content`, which replaces exact runs of text in
+the file already on the branch. An agent changing one line of a large file sends that
+line, not the file:
+
+```bash
+curl -X POST localhost:8080/v1/repos/app/commit -d '{
+  "branch":  "agent/t-07",
+  "message": "t-07: raise the timeout",
+  "expect":  "3b73ec5c...",
+  "changes": [{"path":"server.go","edits":[
+    {"old":"timeout := 30 * time.Second","new":"timeout := 90 * time.Second"}
+  ]}]
+}'
+```
+
+Each `old` must occur exactly once, or the commit is refused and names the count:
+an edit that could land in two places is rejected rather than guessed at. Set `all`
+to replace every occurrence on purpose. Edits apply in order, each to the result of
+the last, and the file keeps its mode.
+
 A losing `expect` returns 409 and the agent retries on the fresh tip. Moving a ref to
 something that is not a fast-forward is refused unless `force` is set.
 
@@ -219,18 +239,21 @@ Seven tools come with it:
 | `perry_list_tree` | one directory, with types and sizes |
 | `perry_list_branches` | branches and their tips, for `expect` |
 | `perry_create_branch` | a branch, as a pointer write |
-| `perry_commit` | a commit, from whole-file contents, under compare-and-swap |
+| `perry_commit` | a commit, from edits or whole-file contents, under compare-and-swap |
 
 The adapter is a client of perry's HTTP API, not of the object store, so the perry
 server can be on another host. That is the point: the agent searches, reads, edits and
 commits without a clone, a checkout, a staging area or a push, and a plain `git clone`
 of the branch it wrote returns a normal repository.
 
-Two things it deliberately does not do. It does not shell out to `git`, so an agent
-given these tools has no local repository to fall back on. And it does not expose a
-"write a diff" tool: `perry_commit` takes each file's complete new contents, because a
-model that emits a unified diff against a file it read is the most common way an
-agent's edit silently fails to apply.
+It does not shell out to `git`, so an agent given these tools has no local repository
+to fall back on.
+
+It does not take a unified diff either. `perry_commit` takes search-and-replace edits:
+exact text, matched once, or refused. A diff carries line numbers and context a model
+has to reconstruct from memory, and when it gets them wrong the patch can still apply,
+in the wrong place. An exact string either occurs once or it does not, so the ambiguity
+is rejected at the server rather than resolved by guessing.
 
 ```bash
 perry mcp -server http://perry.internal:8080 -repo app   # $PERRY_TOKEN for auth
@@ -327,7 +350,7 @@ avoided, not round trips saved.
 
 What this does not show is a real agent finishing a real task sooner. The edit is
 scripted, it is one agent, and no model is in the loop. That measurement is next, and
-it does not go Perry's way.
+the first time it ran, Perry lost.
 
 ### A real agent, with a model in the loop
 
@@ -338,32 +361,50 @@ the edit back off the server.
 
 | Arm | RTT | Setup | Agent | Total | Turns | Output tokens | Cost | Wire |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| perry (MCP) | 0 ms | 0 ms | 74.9 s | **77.6 s** | 6 | 15,040 | $0.33 | 63.5 KB |
-| git shallow | 0 ms | 4.7 s | 16.5 s | **23.6 s** | 4 | 585 | $0.07 | 3.39 MB |
-| git sparse, told the dir | 0 ms | 2.3 s | 15.9 s | **20.6 s** | 4 | 727 | $0.08 | 769 KB |
-| perry (MCP) | 75 ms | 0 ms | 75.8 s | **78.2 s** | 6 | 15,070 | $0.33 | 63.8 KB |
-| git shallow | 75 ms | 5.0 s | 19.4 s | **27.0 s** | 4 | 565 | $0.07 | 3.39 MB |
-| git sparse, told the dir | 75 ms | 2.8 s | 14.5 s | **19.6 s** | 4 | 623 | $0.07 | 769 KB |
+| **perry (MCP)** | 0 ms | **0 ms** | 14.2 s | **16.8 s** | 6 | 1,078 | $0.13 | **28.1 KB** |
+| git shallow | 0 ms | 4.7 s | 16.6 s | 23.8 s | 4 | 551 | $0.07 | 3.39 MB |
+| git sparse, told the dir | 0 ms | 2.3 s | 14.9 s | 20.0 s | 4 | 628 | $0.07 | 769 KB |
+| **perry (MCP)** | 75 ms | **0 ms** | 15.7 s | **18.0 s** | 6 | 1,191 | $0.13 | **28.4 KB** |
+| git shallow | 75 ms | 4.9 s | 15.7 s | 23.1 s | 4 | 586 | $0.07 | 3.39 MB |
+| git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | 20.2 s | 4 | 614 | $0.07 | 769 KB |
 
-**Perry loses by three to four times.** It moves 53 times fewer bytes and takes three
-to four times longer, at 4.6 times the cost, and the three trials agree within 1.8 s.
+Perry finishes the task **1.2 to 1.4 times sooner** while moving **27 to 121 times
+fewer bytes**, and it still costs about **1.9 times as much**.
 
-The cause is a design decision in Perry, not a measurement artefact. The agent had to
-rewrite a 733-line file, and `perry_commit` — like `POST /commit` underneath it — takes
-each file's **complete new contents**. So the model re-emitted the whole file: 15,040
-output tokens against 585 for the git arm, which used an edit tool and sent a few lines.
-Both arms carry about 15 s of fixed overhead; Perry's extra 59 s is the model typing out
-a file it had just been shown, at about 245 tokens per second.
+This is the second run of this benchmark. The first one is worth stating plainly,
+because it is the only reason the second one looks like this.
 
-Perry's real wins survive and are worth naming: setup is free, 0 ms against 2.3 to 5.0 s,
-and latency barely touches it — going from 0 ms to 75 ms RTT costs Perry 0.6 s and costs
-the shallow clone 3.4 s. Neither is worth 57 s. An agent's wall clock is dominated by
-inference, and a transport that is 53 times leaner is invisible next to a tool design
-that makes the model generate twenty-five times more text.
+**Perry lost the first run by three to four times**, at 4.6 times the cost: 77.6 s
+against 23.6 s, with three trials agreeing within 1.8 s. The cause was a design
+decision, argued for in a commit message and never measured. `perry_commit` took each
+file's **complete new contents**, so a model editing a 733-line file re-emitted all 733
+lines — 15,040 output tokens against 585 for the arm that had a normal edit tool. The
+extra 59 s was the model typing out a file it had just been shown, at about 245 tokens
+per second. A transport 53 times leaner is invisible next to a tool that makes the
+model generate twenty-five times more text.
 
-The gap scales with the size of the edited file, so a 50-line file would show much less
-of it, perhaps none. See [BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop)
-for the per-run detail and the confounds.
+The fix was [search-and-replace edits](#the-http-api) in `POST /commit` and in
+`perry_commit`. Nothing else changed: same prompts, same corpus, same model, same
+harness. Output tokens fell from 15,040 to 1,078, and the arm that was 54 s behind came
+out 7 s ahead.
+
+What Perry wins, and why:
+
+- **Setup is free.** 0 ms against 2.3 to 4.9 s, in every run. The agent's first tool
+  call does real work; git's first few minutes of wall clock are a download.
+- **Latency barely touches it.** 0 ms to 75 ms RTT costs Perry 1.2 s and the shallow
+  clone 3.4 s, because Perry makes 4 requests against git's 5 to 9.
+- **The bytes are real but were never the bottleneck.** 28 KB against 3.39 MB matters
+  for a fleet and for a laptop on hotel wifi. It is not what made the difference here.
+
+What it still loses on is **cost: $0.13 against $0.07**. Output tokens are now close,
+551 against 1,078, so the gap is prompt: Perry's arm takes 6 turns to git's 4, and
+carries seven tool schemas in a prefix that is re-read every turn — 215k cached input
+tokens against 154k. Perry buys wall clock and bandwidth with context.
+
+One task, one repository, one model, one file size. See
+[BENCHMARKS.md](BENCHMARKS.md#a-real-agent-with-a-model-in-the-loop) for every run and
+the confounds.
 
 ### Contention
 

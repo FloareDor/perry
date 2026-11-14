@@ -564,3 +564,125 @@ func TestTokenIsSentOnEveryCall(t *testing.T) {
 		}
 	})
 }
+
+// TestEditCommitChangesOneLineWithoutTheFile is the whole point of the edits
+// path: the model sends the line it is changing, not the file it read.
+func TestEditCommitChangesOneLineWithoutTheFile(t *testing.T) {
+	c, s := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	out, isErr := sess.tool("perry_commit", map[string]any{
+		"branch":  "main",
+		"message": "raise the connect timeout",
+		"changes": []map[string]any{{
+			"path": "src/main.go",
+			"edits": []map[string]any{
+				{"old": "connectTimeout := 30", "new": "connectTimeout := 60"},
+			},
+		}},
+	})
+	if isErr {
+		t.Fatalf("commit failed: %s", out)
+	}
+
+	got, err := api.ReadFile(context.Background(), s, "main", "src/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "package main\n\nfunc main() {\n\tconnectTimeout := 60\n\t_ = connectTimeout\n}\n"
+	if string(got) != want {
+		t.Fatalf("file after edit:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+// A failed edit has to come back as a tool result the model can read and act
+// on, not as a transport error it never sees.
+func TestAFailedEditTellsTheModelWhy(t *testing.T) {
+	c, s := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	before, err := api.ReadFile(context.Background(), s, "main", "src/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, isErr := sess.tool("perry_commit", map[string]any{
+		"branch":  "main",
+		"message": "edit something that is not there",
+		"changes": []map[string]any{{
+			"path":  "src/main.go",
+			"edits": []map[string]any{{"old": "readTimeout := 30", "new": "readTimeout := 60"}},
+		}},
+	})
+	if !isErr {
+		t.Fatalf("a non-matching edit was accepted: %s", out)
+	}
+	if !strings.Contains(out, "did not match") {
+		t.Errorf("the model is not told what went wrong: %s", out)
+	}
+
+	after, err := api.ReadFile(context.Background(), s, "main", "src/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Error("a failed edit still changed the file")
+	}
+}
+
+// Edits and whole-file writes have to work in one commit, because a change
+// that touches an existing file and adds a new one is ordinary.
+func TestOneCommitMixesEditsAndNewFiles(t *testing.T) {
+	c, s := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	out, isErr := sess.tool("perry_commit", map[string]any{
+		"branch":  "main",
+		"message": "edit one, add one",
+		"changes": []map[string]any{
+			{"path": "src/main.go", "edits": []map[string]any{
+				{"old": "connectTimeout := 30", "new": "connectTimeout := 90"},
+			}},
+			{"path": "src/new.go", "content": "package main\n"},
+		},
+	})
+	if isErr {
+		t.Fatalf("commit failed: %s", out)
+	}
+
+	ctx := context.Background()
+	edited, err := api.ReadFile(ctx, s, "main", "src/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(edited), "connectTimeout := 90") {
+		t.Errorf("the edit did not land: %q", edited)
+	}
+	added, err := api.ReadFile(ctx, s, "main", "src/new.go")
+	if err != nil {
+		t.Fatalf("the new file is missing: %v", err)
+	}
+	if string(added) != "package main\n" {
+		t.Errorf("new file is %q", added)
+	}
+}
+
+// A change with neither content nor edits is a malformed call the model
+// should hear about, not an accidental empty file.
+func TestAChangeWithNothingToDoIsRefused(t *testing.T) {
+	c, _ := fixture(t)
+	sess := newSession(t, c)
+	sess.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+
+	out, isErr := sess.tool("perry_commit", map[string]any{
+		"branch":  "main",
+		"message": "nothing",
+		"changes": []map[string]any{{"path": "src/main.go"}},
+	})
+	if !isErr {
+		t.Fatalf("a change with no content, edits or delete was accepted: %s", out)
+	}
+}

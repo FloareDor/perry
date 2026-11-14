@@ -189,7 +189,47 @@ store for the MCP arm, from `git grep` on the origin for the git arms. The
 perry arm gets no shell, so it cannot fall back on a clone; the git arms get
 no perry tools.
 
+It has been run twice. The first run is reported below the second, because
+perry lost it and the loss is why the second run reads the way it does.
+
 ### Median of three, grpc-go
+
+| Arm | RTT | Setup | Agent | **Total** | Turns | Output tokens | Cost | Wire | Reqs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| perry (MCP) | 0 ms | 0 ms | 14.2 s | **16.8 s** | 6 | 1,078 | $0.134 | 28.1 KB | 4 |
+| git shallow | 0 ms | 4.7 s | 16.6 s | **23.8 s** | 4 | 551 | $0.071 | 3.39 MB | 5 |
+| git sparse, told the dir | 0 ms | 2.3 s | 14.9 s | **20.0 s** | 4 | 628 | $0.073 | 769 KB | 9 |
+| perry (MCP) | 75 ms | 0 ms | 15.7 s | **18.0 s** | 6 | 1,191 | $0.135 | 28.4 KB | 4 |
+| git shallow | 75 ms | 4.9 s | 15.7 s | **23.1 s** | 4 | 586 | $0.071 | 3.39 MB | 5 |
+| git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | **20.2 s** | 4 | 614 | $0.072 | 769 KB | 9 |
+
+Perry finishes 1.2 to 1.4 times sooner, moving 27 to 121 times fewer bytes,
+and costs 1.9 times as much.
+
+Every run, because an LLM's wall clock is not repeatable:
+
+| Arm | RTT | # | Setup | Agent | Total | Turns | Out tok | Cost | Wire |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| perry | 0 ms | 1 | 0 ms | 14.04 s | 16.70 s | 6 | 1,100 | $0.1396 | 28.0 KB |
+| perry | 0 ms | 2 | 0 ms | 14.21 s | 16.83 s | 6 | 1,078 | $0.1327 | 28.1 KB |
+| perry | 0 ms | 3 | 0 ms | 14.81 s | 17.18 s | 6 | 1,125 | $0.1335 | 28.2 KB |
+| shallow | 0 ms | 1 | 4.70 s | 17.43 s | 24.79 s | 4 | 598 | $0.0712 | 3.39 MB |
+| shallow | 0 ms | 2 | 4.66 s | 16.63 s | 23.78 s | 4 | 551 | $0.0706 | 3.39 MB |
+| shallow | 0 ms | 3 | 4.53 s | 16.19 s | 23.15 s | 4 | 609 | $0.0710 | 3.39 MB |
+| sparse | 0 ms | 1 | 2.65 s | 14.95 s | 20.02 s | 4 | 733 | $0.0728 | 769 KB |
+| sparse | 0 ms | 2 | 2.28 s | 14.31 s | 19.11 s | 4 | 628 | $0.0715 | 769 KB |
+| sparse | 0 ms | 3 | 2.21 s | 16.45 s | 21.02 s | 5 | 765 | $0.0775 | 769 KB |
+| perry | 75 ms | 1 | 0 ms | 15.73 s | 18.01 s | 6 | 1,191 | $0.1344 | 28.3 KB |
+| perry | 75 ms | 2 | 0 ms | 15.22 s | 17.70 s | 6 | 1,204 | $0.1349 | 28.4 KB |
+| perry | 75 ms | 3 | 0 ms | 15.78 s | 18.24 s | 6 | 1,217 | $0.1352 | 28.5 KB |
+| shallow | 75 ms | 1 | 4.91 s | 15.68 s | 23.06 s | 4 | 586 | $0.0708 | 3.39 MB |
+| shallow | 75 ms | 2 | 4.87 s | 15.03 s | 22.25 s | 4 | 577 | $0.0707 | 3.39 MB |
+| shallow | 75 ms | 3 | 4.91 s | 16.79 s | 23.96 s | 4 | 540 | $0.0702 | 3.39 MB |
+| sparse | 75 ms | 1 | 2.89 s | 14.73 s | 20.05 s | 4 | 614 | $0.0714 | 769 KB |
+| sparse | 75 ms | 2 | 2.83 s | 16.81 s | 22.01 s | 5 | 733 | $0.0772 | 769 KB |
+| sparse | 75 ms | 3 | 2.80 s | 15.00 s | 20.18 s | 4 | 655 | $0.0717 | 769 KB |
+
+### The first run, which perry lost
 
 | Arm | RTT | Setup | Agent | **Total** | Turns | Output tokens | Cost | Wire |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -200,59 +240,73 @@ no perry tools.
 | git shallow | 75 ms | 5.0 s | 19.4 s | **27.0 s** | 4 | 565 | $0.07 | 3.39 MB |
 | git sparse, told the dir | 75 ms | 2.8 s | 14.5 s | **19.6 s** | 4 | 623 | $0.07 | 769 KB |
 
-**Perry loses, by a factor of three to four.** It moves 53 times fewer bytes
-and takes 3.3 to 4.0 times longer, at 4.6 times the cost. This is not noise:
-the three perry trials at 0 ms land within 1.8 s of each other, 74.0 to
-75.8 s, and their output token counts within 126 of each other.
+Perry took 3.3 to 4.0 times longer, at 4.6 times the cost, while moving 53
+times fewer bytes. It was not noise: the three perry trials at 0 ms landed
+within 1.8 s of each other and their output token counts within 126.
 
-### Why
+The agent had to edit `balancer/rls/balancer.go`, 27,314 bytes and 733 lines,
+and `perry_commit` took each file's **complete new contents**. So the model
+re-emitted the whole file: 15,040 output tokens against the git arm's 585,
+which used `Edit` and sent a few lines. The arithmetic holds up -- both arms
+carry about 15 s of fixed turn overhead, and perry's extra 59 s buys 14,455
+extra output tokens at roughly 245 tokens per second, which is what this model
+does. The latency was not transport, parsing or SQLite. It was the model
+typing out a file it had just been shown.
 
-The agent had to rewrite `balancer/rls/balancer.go`, 27,314 bytes and 733
-lines, and `perry_commit` takes each file's **complete new contents**. So the
-model re-emitted the whole file: 15,040 output tokens against the git arm's
-585, which used `Edit` and sent a few lines.
+That design was deliberate and argued for in the commit that introduced the
+adapter: a model emitting a unified diff against a file it read is the most
+common way an agent's edit silently fails to apply. The reliability reasoning
+still stands. The claim about cost attached to it was asserted without
+measurement, and measured, it was wrong.
 
-The arithmetic holds up. Both arms carry about 15 s of fixed turn overhead.
-Perry's extra 59 s buys 14,455 extra output tokens, a marginal generation rate
-of roughly 245 tokens per second, which is what this model does. The latency
-is not transport, parsing or SQLite. It is the model typing out a file it had
-just been shown.
+### The fix, and what changed
 
-That design decision was deliberate and it is argued for in the commit that
-introduced the adapter: a model emitting a unified diff against a file it read
-is the most common way an agent's edit silently fails to apply. That reasoning
-is about reliability and it still stands. It was asserted about cost without
-being measured, and measured, it is wrong. A whole-file write trades a byte
-saving nobody was bottlenecked on for a token cost that dominates the clock.
+`POST /v1/repos/{repo}/commit` and `perry_commit` now take `edits`: exact
+search-and-replace pairs against the file already on the branch. The
+reliability argument is kept rather than abandoned, because search-and-replace
+is not a diff. A unified diff carries line numbers and context the model
+reconstructs from memory, and a wrong one can still apply, in the wrong place.
+An exact string occurs once or it does not: a match count other than one is
+refused by the server and reported back to the model with the count.
 
-This is perry's problem and not the adapter's. `POST /v1/repos/{repo}/commit`
-takes whole-file contents too, so any client built on it pays the same price.
+Nothing else changed between the two runs -- same prompts, same corpus, same
+model, same harness, same machine. Output tokens fell from 15,040 to 1,078 and
+the arm that was 54 s behind came out 7 s ahead.
 
-### What perry does win, and what it is worth
+### What perry wins, and what it still loses
 
-Latency-insensitivity is real and it is measurable. Going from 0 ms to 75 ms
-of RTT costs perry 0.6 s and costs the shallow clone 3.4 s, because perry makes
-four requests against git's five to nine. Setup is genuinely free: 0 ms against
-2.3 to 5.0 s, every run.
+Wins, in order of how much they mattered:
 
-Both are true and neither is worth 57 s. An agent's wall clock is dominated by
-inference, and a transport that is 53 times leaner is invisible next to a tool
-design that makes the model generate twenty-five times more text.
+- **Setup is free.** 0 ms against 2.3 to 4.9 s, in every run.
+- **Latency barely touches it.** 0 ms to 75 ms of RTT costs perry 1.2 s and the
+  shallow clone 3.4 s, because perry makes four requests against git's five to
+  nine.
+- **Bytes.** 28 KB against 3.39 MB. Real, and the thing that mattered least
+  here; it is a fleet and bad-link argument, not a wall-clock one.
+
+It still loses on cost: $0.134 against $0.071. Output tokens are now close,
+1,078 against 551, so the gap is prompt rather than generation. Perry's arm
+takes 6 turns to git's 4 and carries seven tool schemas in a prefix re-read
+every turn: 215k cached input tokens against 154k, and 25k of cache writes
+against 12k. Perry buys wall clock and bandwidth with context.
 
 ### What this still does not show
 
-- One task, one repository, one model, one file size. The whole gap is a
-  function of how large the edited file is; on a 50-line file the token cost
-  of rewriting it would be close to nothing and the ordering could reverse.
-  The task was not chosen to favour either side, but it was not varied either.
+- One task, one repository, one model, one file size. The first run's gap was
+  a function of edited-file size; the second run's is smaller and could also
+  move with it. The task was not chosen to favour either side, but it was not
+  varied either.
 - Token counts are not cleanly comparable between arms. Each carries a
   different fixed system prompt, so only the difference between arms means
   anything, not the absolute figures.
 - The git arms use tools this model has seen endlessly in training; the perry
   arm gets seven it has never seen. That cuts against perry and cannot be
   corrected for here.
-- One run reached for PowerShell, which was not in its allowed list, and
+- Two runs reached for PowerShell, which was not in their allowed list, and
   adapted. Tool-set fit is a confound in both directions.
+- The edit here is an append, so the `old` anchor is the end of the file. A
+  change in the middle of a dense file is the case where an exact anchor is
+  hardest to make unique, and it is not measured.
 
 ## Same-ref contention
 
@@ -303,9 +357,12 @@ they collide less.
   An agent that needs a real checkout, to run a build or a test suite, pays
   more against perry than against GitHub.
 - The real-agent comparison is one task, one repository, one model and one
-  file size, at three trials per cell. Its result -- that perry loses by three
-  to four times on a 733-line file -- is a function of the edited file's size,
-  and it was not varied.
+  file size, at three trials per cell. The first run of it, with whole-file
+  writes, turned entirely on the edited file's size, and that was not varied;
+  there is no reason to assume the second run does not turn on it too.
+- The real-agent comparison edits by appending, so the anchor an edit has to
+  match is the end of the file. Matching uniquely in the middle of a dense
+  file is the harder case and is not measured.
 - The contention benchmark's HTTP runs are loopback. A remote agent would also
   pay network latency on each of the three requests per attempt, and a remote
   git agent would pay it per subprocess round trip too.

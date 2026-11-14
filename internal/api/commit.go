@@ -22,6 +22,10 @@ type Change struct {
 	Content []byte `json:"content"`
 	Delete  bool   `json:"delete,omitempty"`
 	Mode    string `json:"mode,omitempty"`
+	// Edits replaces runs of text in the file that is already there,
+	// instead of sending the whole thing. It is mutually exclusive with
+	// Content, and the file must exist on the branch being committed to.
+	Edits []Edit `json:"edits,omitempty"`
 }
 
 // CommitRequest describes a commit to create without a working tree.
@@ -109,6 +113,10 @@ func Commit(ctx context.Context, s store.Store, req CommitRequest) (*CommitResul
 	// Write the blobs first, so the tree being built always references
 	// objects that already exist.
 	edits := make(map[string]*object.TreeEntry, len(req.Changes))
+	// written remembers what each path's contents became earlier in this
+	// same request, so two changes to one file compose instead of the
+	// second one silently undoing the first.
+	written := map[string][]byte{}
 	var toStore []*object.Object
 	for _, c := range req.Changes {
 		clean := cleanPath(c.Path)
@@ -116,11 +124,13 @@ func Commit(ctx context.Context, s store.Store, req CommitRequest) (*CommitResul
 			return nil, fmt.Errorf("api: invalid path %q", c.Path)
 		}
 		if c.Delete {
+			if len(c.Edits) > 0 {
+				return nil, fmt.Errorf("api: %s cannot be both edited and deleted", clean)
+			}
 			edits[clean] = nil
+			delete(written, clean)
 			continue
 		}
-		blob := &object.Object{Type: object.TypeBlob, Payload: c.Content}
-		toStore = append(toStore, blob)
 
 		mode := object.ModeRegular
 		switch c.Mode {
@@ -129,6 +139,34 @@ func Commit(ctx context.Context, s store.Store, req CommitRequest) (*CommitResul
 		case "120000":
 			mode = object.ModeSymlink
 		}
+
+		content := c.Content
+		if len(c.Edits) > 0 {
+			if c.Content != nil {
+				return nil, fmt.Errorf("api: %s has both content and edits; send one or the other", clean)
+			}
+			base, ok := written[clean]
+			if !ok {
+				var baseMode object.Mode
+				base, baseMode, err = blobAt(ctx, s, baseTree, clean)
+				if err != nil {
+					return nil, err
+				}
+				// An edit that does not ask for a mode keeps the one
+				// the file already has.
+				if c.Mode == "" {
+					mode = baseMode
+				}
+			}
+			content, err = applyEdits(clean, base, c.Edits)
+			if err != nil {
+				return nil, err
+			}
+		}
+		written[clean] = content
+
+		blob := &object.Object{Type: object.TypeBlob, Payload: content}
+		toStore = append(toStore, blob)
 		edits[clean] = &object.TreeEntry{Mode: mode, ID: blob.ID()}
 	}
 	if err := s.PutBatch(ctx, toStore); err != nil {

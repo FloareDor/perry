@@ -21,9 +21,24 @@ export interface GrepResult {
   filesMatched: number;
 }
 
+/** One exact replacement inside a file that is already on the branch. */
+export interface Edit {
+  /** The text to find. It must occur exactly once unless `all` is set. */
+  old: string;
+  /** What replaces it. An empty string deletes the matched text. */
+  new: string;
+  all?: boolean;
+}
+
 export interface Change {
   path: string;
+  /** The complete new contents. For a new file or a full rewrite. */
   content?: string;
+  /**
+   * Replacements to make in the file already on the branch, instead of
+   * sending the whole of it. Mutually exclusive with `content`.
+   */
+  edits?: Edit[];
   delete?: boolean;
   mode?: string;
 }
@@ -192,8 +207,15 @@ export class PerryClient {
         ...req,
         changes: req.changes.map((c) => ({
           path: c.path,
-          // The Go side takes []byte, which JSON-decodes from base64.
-          content: c.delete ? undefined : Buffer.from(c.content ?? "", "utf8").toString("base64"),
+          // The Go side takes []byte, which JSON-decodes from base64. A
+          // change made by edits sends no content at all: the server reads
+          // the current file itself, and an empty base64 string here would
+          // reach it as a request to truncate the file.
+          content:
+            c.delete || c.edits?.length
+              ? undefined
+              : Buffer.from(c.content ?? "", "utf8").toString("base64"),
+          edits: c.edits,
           delete: c.delete,
           mode: c.mode,
         })),
