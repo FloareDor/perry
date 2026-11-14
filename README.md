@@ -55,11 +55,11 @@ stock client, so everything downstream of the repository keeps working.
 
 **It is young.** One author, one corpus, one machine. See [Project status](#project-status).
 
-**It costs more per task than a checkout does.** Perry finishes a real agent task
-sooner than an optimised git checkout and moves far fewer bytes, but at roughly 1.9
-times the token cost: its tools take more turns and ride in a larger prompt that is
-re-read every one of them. If you are paying for inference and not for bandwidth or
-wall clock, a shallow clone is cheaper.
+**It costs more per task than a checkout does.** On the one agent task measured so
+far, Perry finished sooner than an optimised git checkout and moved far fewer bytes,
+but at roughly 1.9 times the token cost: its tools took six turns to git's four and
+ride in a larger prompt that is re-read every one of them. If you are paying for
+inference and not for bandwidth or wall clock, a shallow clone is cheaper.
 
 **It is a storage and protocol layer, and will stay one.** No web UI, pull
 requests, CI or code review. Smart HTTP only: no SSH transport, no Git LFS, no GitHub
@@ -311,8 +311,8 @@ that still transfers anything — a shallow clone with a sparse checkout, which 
 told which directory to look in — it is roughly 3 times faster and moves about 27 times
 fewer bytes, while finding the file on its own.
 
-That is code *access*, not a coding task. With a real model in the loop the ordering
-reverses; see [A real agent](#a-real-agent-with-a-model-in-the-loop) below.
+That is code *access*, not a coding task. What a model does with the access is a
+separate measurement; see [A real agent](#a-real-agent-with-a-model-in-the-loop) below.
 
 The warm worktree is the honest comparison and it transfers nothing at all, because its
 objects are already local. Perry does not beat it on bytes and never will; what it does
@@ -368,8 +368,10 @@ the edit back off the server.
 | git shallow | 75 ms | 4.9 s | 15.7 s | 23.1 s | 4 | 586 | $0.07 | 3.39 MB |
 | git sparse, told the dir | 75 ms | 2.8 s | 15.0 s | 20.2 s | 4 | 614 | $0.07 | 769 KB |
 
-Perry finishes the task **1.2 to 1.4 times sooner** while moving **27 to 121 times
-fewer bytes**, and it still costs about **1.9 times as much**.
+**On this task**, Perry finishes **1.2 to 1.4 times sooner** while moving **27 to 121
+times fewer bytes**, and still costs about **1.9 times as much**. One task at three
+trials per cell is first evidence, not a general result: read every number here as a
+measurement of this task, not a property of Perry.
 
 This is the second run of this benchmark. The first one is worth stating plainly,
 because it is the only reason the second one looks like this.
